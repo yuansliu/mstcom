@@ -255,7 +255,7 @@ inline void indexConstruction() {
 
 		// idxLoad(idxfn);
 		// exit(0);
-		/*if (kmer <= 31) { 
+		if (kmer <= 31) { 
 			for (int i = 0; i < (1 << bsize); ++i) {
 				kv_destroy(B[i]);
 				kv_init(B[i]);
@@ -273,7 +273,7 @@ inline void indexConstruction() {
 		obtainMiniIdx();
 
 		idxfn = folder + to_string(kmer) + ".max";
-		idxDump(idxfn);*/
+		idxDump(idxfn);
 
 		if (kmer <= 31) { 
 			for (int i = 0; i < (1 << bsize); ++i) {
@@ -304,7 +304,7 @@ inline void indexConstruction() {
 
 		// cout << "Time of initialTreeConstuction kmer =" << kmer << " = " << stopwatch.stop() << std::endl;
 		// stopwatch.resume();
-		-- kmer;
+		// -- kmer;
 	}
 	tstopwatch.resume();
 
@@ -367,7 +367,7 @@ inline void treeConstuction() {
 			// cout << kmer << " before processBuckets2()\n";
 			collectNext();
 			// cout << kmer << " after processBuckets2()\n";
-			/*
+			
 			idxfn = folder + to_string(kmer) + ".max";
 			// cout << "before mm_bucket_load()\n";
 			if (idxLoad(idxfn) == false) {
@@ -378,7 +378,7 @@ inline void treeConstuction() {
 			}
 
 			// cout << kmer << " before processBuckets2()\n";
-			collectNext();*/
+			collectNext();
 			// processLargeBuckets2();
 			// cout << kmer << " after processLargeBuckets2()\n";
 
@@ -570,9 +570,9 @@ inline void connectWithPrid2() {
 			}
 			// fprintf(fp, "%u: %u; %d\n", rid, prid2[rid], min_dif2[rid]);
 		} 
-		// else {
-		// 	isnextrnd[rid] = true;
-		// }
+		else {
+			isnextrnd[rid] = true;
+		}
 	}
 	// fclose(fp);
 	// exit(0);
@@ -1402,9 +1402,10 @@ int compress_main(int argc, char *argv[]) {
 	// cout << "pls input a string: ";
 	// scanf("%s", str);
 	reads = new READS_t[max_rid];
-	isnextrnd = new bool[max_rid];
 	prid2 = new uint32_t[max_rid];
 	min_dif2 = new int[max_rid];
+	
+	isnextrnd = new bool[max_rid];
 	memset(isnextrnd, 0, sizeof(bool) * max_rid);
 
 	mini = new uint64_t[max_rid];

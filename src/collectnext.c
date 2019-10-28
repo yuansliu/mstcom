@@ -108,7 +108,7 @@ void collectNextFun() {
 
 		if (debug) cout << idx << "; " << rid << "; " << seq[rid].seq << "; main\n";
 
-		// if (isnextrnd[rid]) continue; // not for next round
+		if (isnextrnd[rid]) continue; // not for next round
 		// if (reads[prid2[rid]].root != reads[rid].root) continue; //prid2[rid] and rid are not in the same tree
 
 		if (reads[prid2[rid]].root == reads[rid].root) {
@@ -125,7 +125,7 @@ void collectNextFun() {
 		// cout << stra << endl;
 
 		searchedNum = 0;
-		for (int i = idx - 1; i >= 0; --i) {
+		for (uint32_t i = idx - 1; i >= 0; --i) {
 			// cout << (mini[idx]&1) << "; " << (mini[i]&1) << endl;
 			if ((mini[idx]&1) != (mini[i]&1)) break;
 
@@ -133,10 +133,13 @@ void collectNextFun() {
 			ty = mini[i];
 			trid = ty >> 32;
 
-			if (reads[trid].root == reads[rid].root) continue; //already in the same tree
+			if (reads[trid].root == reads[rid].root) {
+				if (i == 0) break;
+				continue; //already in the same tree
+			}
 
 			tpos = (uint32_t)ty >> 2;
-			tdir = (ty>>1) & 1;
+			tdir = (ty >> 1) & 1;
 
 			if (abs(tpos - pos) > mindiff) break;
 
@@ -146,7 +149,8 @@ void collectNextFun() {
 			}
 			if (debug) cout << i << "; " << trid << "; " << strb << "\n";
 
-			difflen = diffstrlen(strb, stra, tpos - pos);
+			// difflen = diffstrlen(strb, stra, tpos - pos);
+			difflen = (diffstrlen(strb, stra, tpos - pos) + diffstrlen(stra, strb, pos - tpos))/2;
 
 			// cout << "difflen: " << difflen << endl;
 
@@ -162,6 +166,7 @@ void collectNextFun() {
 			if (searchedNum > maxSearchedNum) break;
 			// if (searchedNum > 800) break;
 			// if (searchedNum > 1000) break;
+			if (i == 0) break;
 
 		}
 		if (mindiff < max_dif_thr && mindiff < min_dif2[rid]) {

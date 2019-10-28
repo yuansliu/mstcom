@@ -8,8 +8,6 @@ void calc128MinimizersDupFun() { // before calling this method, MUST set rid_pth
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
 		if (rid >= max_rid) break;
 		// cout << "rid: " << rid << endl;
-		// if (kmer == max_kmer) {
-		// isnextrnd[rid] = true;
 		tr = &reads[rid];
 		tr->prid = tr->root = rid;
 		kv_init(tr->crid);
@@ -25,7 +23,7 @@ void calc128MinimizersDupFun() { // before calling this method, MUST set rid_pth
 			
 		bucketidx = minimizer.x & mask;
 		mm128_v *p = &B[bucketidx];
-		bmtx[bucketidx].lock(); // the lock can be remove by first counting the number of this bucketidx
+		bmtx[bucketidx].lock(); 
 		kv_push(mm128_t, *p, minimizer);
 		bmtx[bucketidx].unlock();
 	}
@@ -86,7 +84,6 @@ void calc128MinimizersFun() { // before calling this method, MUST set rid_pthrea
 		if (rid >= max_rid) break;
 		
 		if (!isnextrnd[rid]) {
-			// __sync_fetch_and_add(&minicount, 1);
 			min128sketch(seq[rid].seq, L, kmer, rid, &minimizer);
 			bucketidx = minimizer.x & mask;
 			mm128_v *p = &B[bucketidx];
@@ -243,7 +240,7 @@ void sort128BucketsFun() {
 					// fprintf(stderr, "j: %lu;\nstart_a: %lu\nn: %lu", j, start_a, n);
 					assert(j - start_a == n);
 
-					if (n >= 2) { // tree
+					if (n >= 2) { // the size of a cluster > 1
 						// record bid, start_a and n;
 						ttmmrec.x = bid, ttmmrec.y = start_a, ttmmrec.z = n;
 						recmtx.lock();

@@ -6,7 +6,7 @@ bool rgcmp(const mm128_t &a, const mm128_t &b) {
 	return a.x < b.x;
 }
 
-bool *fmm;
+bool *fmm; //flag for maximizer or minimizer
 
 void process128DupBucketsFun() {
 	uint32_t bid, start_a, n, j;
@@ -45,7 +45,6 @@ void process128DupBucketsFun() {
 
 		ridvecid = __sync_fetch_and_add(&minisize, n);
 
-		// for (uint32_t k = 0; k < L; ++k) {
 		for (uint32_t k = L - 1; k > 0; --k) {
 			b = &iv[k];
 			if (b->n > 0 ) {
@@ -61,19 +60,6 @@ void process128DupBucketsFun() {
 					}
 					//
 					sort (b->a, b->a + b->n, rgcmp);
-
-					// radix_sort_128x(b->a, b->a + b->n);
-
-					// for (j = 1, n = 1, start_a = 0; j <= b->n; ++j) {
-					// 	if (j == b->n || b->a[j].x != b->a[j-1].x) {
-					// 		// assert(j - start_a == n);
-					// 		if (n > 2) { 
-					// 			//b->a[start...(start_a+n-1)]
-					// 			sort (b->a + start_a, b->a + start_a + n, rgcmp);
-					// 		} 
-					// 		start_a = j, n = 1;
-					// 	} else {++n;}
-					// }
 
 					for (int i1 = 0; i1 < b->n; ++i1) {
 						fmm[ridvecid] = true; // label as maximizer
@@ -156,14 +142,12 @@ void findDupFun() {
 		// cout << "idx: " << idx << "; rid: " << rid << endl;
 
 		// for (uint32_t i = idx + 1; i < minisize; ++i) {
-		for (int i = idx - 1; i >= 0; --i) {
+		for (uint32_t i = idx - 1; i >= 0; --i) {
 			// cout << (mini[idx]&1) << "; " << (mini[i]&1) << endl;
 			if ((mini[idx]&1) != (mini[i]&1)) break;
 
 			ty = mini[i];
-
 			trid = ty >> 32;
-
 			// cout << "i: " << i << "; trid: " << trid << endl;
 			tdir = (ty>>1) & 1;
 			strcpy(strb, seq[trid].seq);
@@ -189,13 +173,31 @@ void findDupFun() {
 				reads[rid].shift = 0; 
 				break;
 			}
+			if (i == 0) break;
 		}
 		// cout << "---\n";
 	}
 	// delete[] stra;
 	// delete[] strb;
 }
- 
+
+// inline 
+void findDuplicate() {
+	// tt = 0;
+	rid_pthread = 1;
+	std::vector<thread> threadVec;
+	// nthreads = 1;
+	cout << "nthreads: " << nthreads << endl; 
+	for (int i = 0; i < nthreads; ++i) {
+		threadVec.push_back(std::thread(findDupFun));
+	}
+	std::for_each(threadVec.begin(), threadVec.end(), [](std::thread & thr) {
+		thr.join();
+	});
+	threadVec.clear();
+	// cout << "tt: " << tt << endl;
+}
+
 bool cmpdupid(const dup_t &a, const dup_t &b) {
 	return a.id < b.id;
 }
@@ -381,23 +383,6 @@ void processDup() {
 	}
 }
 
-// inline 
-void findDuplicate() {
-	// tt = 0;
-	rid_pthread = 1;
-	std::vector<thread> threadVec;
-	// nthreads = 1;
-	cout << "nthreads: " << nthreads << endl; 
-	for (int i = 0; i < nthreads; ++i) {
-		threadVec.push_back(std::thread(findDupFun));
-	}
-	std::for_each(threadVec.begin(), threadVec.end(), [](std::thread & thr) {
-		thr.join();
-	});
-	threadVec.clear();
-	// cout << "tt: " << tt << endl;
-}
-
 void removeDuplicate() {
 	CStopWatch tstopwatch;
 	tstopwatch.start();
@@ -420,7 +405,7 @@ void removeDuplicate() {
 	tstopwatch.resume();
 	// cout << "after calcMinimizers()\n";
 	// cout << "kmer: " << kmer << endl;
-	sortBuckets();
+	sortBuckets(); 
 
 	cout << "Time of sortBuckets() = " << tstopwatch.stop() << std::endl;
 	tstopwatch.resume();
