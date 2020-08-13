@@ -70,7 +70,7 @@ void getPars(int argc, char* argv[]) {
 	ispe = false;
 	bool isinfile = false, isoutfile = false; 
 	int oc;
-	while ((oc = getopt(argc, argv, "i:f:o:t:ph")) >= 0) {
+	while ((oc = getopt(argc, argv, "i:f:o:n:l:t:ph")) >= 0) {
 		switch (oc) {
 			case 'i':
 				infile = optarg;
@@ -90,6 +90,12 @@ void getPars(int argc, char* argv[]) {
 				break;
 			case 't':
 				nthreads = atoi(optarg);
+				break;
+			case 'n':
+				nk = atoi(optarg);
+				break;
+			case 'l':
+				max_dif_thr = atoi(optarg);
 				break;
 			case 'h':
 				show_usage(argv[0]);
@@ -133,8 +139,9 @@ void getPars(int argc, char* argv[]) {
 	}
 	f.close();
 
-	folder = generateString("mstcom", 10); //creat a temp folder for current input
-
+	folder = generateString("mstcom_com", 10); //creat a temp folder for current input
+	
+	cout << folder << endl;
 	// sprintf(cmd, "mkdir -p %s", folder.c_str());
 	// fprintf(stderr, "%s\n", folder.c_str());
 	// system(cmd);
@@ -160,4 +167,16 @@ void reverseComplement(char* start) {
 	}
 	if (left == right)
 		*left = complement[(uint8_t)*left];
+}
+
+void reverseReads(char* start) {
+	char* left = start; // sequence starts
+	char* right = start + L - 1;
+	while (right > left) {
+		char tmp = *left;
+		*left = *right;
+		*right = tmp;
+		++left;
+		--right;
+	}
 }

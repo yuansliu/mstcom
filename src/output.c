@@ -1,1132 +1,16 @@
 #include "mstcom.h"
+using namespace mstcom;
 
-bool cmp(const ROOTNODE_t &a, const ROOTNODE_t &b) {
-	return a.nodecnt < b.nodecnt;
-}
+void compressFiles(vector<string> &f1s, vector<string> &f2s);
+string getExt(string file);
 
-void outputORI() {
-	stopwatch.resume();
-	// char *str = (char*)alloca((L + 1) * sizeof(char));
-	char *rcstr = (char*)alloca((L + 1) * sizeof(char));
+uint32_t MAXNO = 1<<20;
 
-	FILE *fpcnt = fopen("count.txt", "w");
-	FILE *fptrees = fopen("trees.txt", "w");
-	FILE *fpenstr = fopen("encodestr.txt", "w");
-	FILE *fpenstrcopy = fopen("encodestr.txt.copy", "w");
-	FILE *fpenstrcopycopy = fopen("encodestr.txt.copy.copy", "w");
-	FILE *fproot = fopen("rootstr.txt", "w");
-	char name[100]; 
-	// uint8bit_v rootbin;
-	// rootbin.a = rootbin.n = 0;
-	// sprintf(name, "rootstr.bin");
-	// std::ofstream rootOfs(name, std::ios::binary);
-
-	FILE *fporder = NULL;
-	if (isorder) {
-		string orderfn = folder + string("order.bin");
-		// string orderfn = string("order.bin");  // for test
-		fporder = fopen(orderfn.c_str(), "wb");
-	}
-
-	vector<ROOTNODE_t> rootnodevec;
-	for (size_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[rid].prid == rid && reads[rid].crid.n > 0) { //is the root node && not a leaf node == not a singleton reads
-			queue<size_t> q;
-			q.push(rid);
-			size_t cnt = 0;
-			while (!q.empty()) {
-				size_t noderid = q.front();		
-				q.pop();
-				++cnt;
-				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-					q.push(reads[noderid].crid.a[i]);
-				}
-			}
-			rootnodevec.push_back(ROOTNODE_t(rid, cnt));
-		}
-	}
-	sort(rootnodevec.begin(), rootnodevec.end(), cmp);
-
-	bool *visited = new bool[max_rid];
-	memset(visited, false, sizeof(bool)*max_rid);
-
-	int trees_cnt = 0;
-	// size_t outputnum = 0;
-
-	uint8bit_v dirbin;
-	// uint8bit_v rootbin, dirbin;
-	// rootbin.n = rootbin.a = 0;
-	dirbin.n = dirbin.a = 0;
-	sprintf(name, "dir.bin");
-	std::ofstream fpdir(name, std::ios::binary);
-
-	size_t ss = sizeof(size_t);
-	char *en_str = (char*)alloca((L + 1) * sizeof(char));
-
-	// int max_shift = 0;
-
-	for (size_t i = 0; i < rootnodevec.size(); ++i) {
-			size_t cnt = rootnodevec[i].nodecnt;
-			fprintf(fpcnt, "%lu\n", cnt);
-
-			size_t rootid = rootnodevec[i].rid;
-			size_t num = 0;
-			while (rootid < max_rid) {
-				// fprintf(stderr, "%lu\n", rootid);
-				++ num;
-				visited[rootid] = true;
-
-				if (fporder) fwrite(&rootid, ss, 1, fporder);
-
-				if (num == 1) {
-					// fprintf(fproot, "%s\n", reads[rootid].str.c_str());
-					fprintf(fproot, "%s\n", seq[rootid].seq);
-					// for (int j = 0; j < L; ++j) {
-					// 	DNA_push(rootbin, rootOfs, seq_nt4_table[(uint8_t)seq[rootid].seq[j]]);
-					// }
-					rootid = reads[rootid].getChildren();
-				} else {
-					int dir = 0;
-					fprintf(fpenstrcopy, "%s\n", seq[rootid].seq);
-					// if (abs(reads[rootid].shift) > max_shift) {
-					// 	max_shift = abs(reads[rootid].shift);
-					// }
-					if (reads[rootid].isrc) {
-						dir = 1;
-						strcpy(rcstr, seq[rootid].seq);
-						reverseComplement(rcstr);
-						encode(seq[reads[rootid].prid].seq, rcstr, reads[rootid].shift, en_str);
-						fprintf(fpenstrcopycopy, "%s\n%s\n%d\n", seq[reads[rootid].prid].seq, rcstr, reads[rootid].shift);
-						fprintf(fpenstrcopycopy, "%s\n", en_str);
-						fprintf(fpenstr, "%s\n", en_str);
-					} else {
-						encode(seq[reads[rootid].prid].seq, seq[rootid].seq, reads[rootid].shift, en_str);
-						fprintf(fpenstrcopycopy, "%s\n%s\n%d\n", seq[reads[rootid].prid].seq, seq[rootid].seq, reads[rootid].shift);
-						fprintf(fpenstrcopycopy, "%s\n", en_str);
-						fprintf(fpenstr, "%s\n", en_str);
-					}
-
-					bit_push(dirbin, fpdir, dir);
-
-					if (num >= cnt) {
-						rootid = max_rid + 1;
-						break;
-					}
-					size_t child = reads[rootid].getChildren();
-					// fprintf(stderr, "child: %lu\n", child);
-					int back_step = 0;
-					while (child > max_rid) { // no leaf node or all children are visited
-						// back
-						rootid = reads[rootid].prid;
-						// fprintf(stderr, "rootid: %lu\n", rootid);
-						child = reads[rootid].getChildren();
-						++back_step;
-						// ++num;
-						// if (num > 20) exit(0);
-					}
-					// fprintf(stderr, "child: %lu\n", child);
-					if (back_step > 0) {
-						// fprintf(stderr, "--%d\n", back_step);
-						fprintf(fpenstr, "%d\n", back_step);
-					}
-					rootid = child;
-					// if (num > 20) exit(0);
-				}
-			}
-			// exit(0);
-			fprintf(fpenstr, "-\n");
-		// } 
-	}
-
-	if (dirbin.n > 0) { 
-		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
-	}
-	fpdir.close();
-
-	fclose(fproot);
-	// if (rootbin.n > 0) {
-	// 	rootOfs.write((char*)&rootbin.a, sizeof(uint8_t));
-	// }
-	// rootOfs.close();
-	
-	fclose(fpcnt);
-	fclose(fptrees);
-	fclose(fpenstr);
-
-	// fprintf(stderr, "max_shift: %d\n", max_shift);
-	fclose(fpenstrcopy);
-	fclose(fpenstrcopycopy);
-
-	// size_v nrid;
-	// if (isquality) {
-	// 	kv_init(nrid);
-	// }
-
-	uint8bit_v singlebin;
-	singlebin.a = singlebin.n = 0;
-
-	sprintf(name, "singleton.bin");
-	std::ofstream singleOfs(name, std::ios::binary);
-
-	FILE *fpN = fopen("readsN.txt", "w");
-	int ncnt;
-
-	for (size_t rid = 0; rid < max_rid; ++rid) {
-		if (!visited[rid]) {
-			ncnt = 0;
-			for (int i = 0; i < L; ++i) {
-				if (seq[rid].seq[i] == 'N') ++ncnt;
-			}
-			if (ncnt > 0) {
-				fprintf(fpN, "%s\n", seq[rid].seq);
-				// if (isquality) kv_push(size_t, nrid, rid);
-				if (fporder) fwrite(&rid, ss, 1, fporder);
-			} else {
-				// fprintf(fpsingle, "%s\n", seq[rid].seq);
-				for (int i = 0; i < L; ++i) {
-					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-				}
-			}
-		}
-	}
-	fclose(fpN);
-	if (singlebin.n > 0) {
-		singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-	}
-	singleOfs.close();
-
-	if (isorder) {
-		fclose(fporder);
-	}
-
-	// cout << "trees_cnt: " << trees_cnt << "\n";
-	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
-	stopwatch.resume();
-}
-
-bool cmpduprc0(const dup_t &a, const dup_t &b) {
-	return a.isrc < b.isrc;
-}
-
-bool cmpduprc1(const dup_t &a, const dup_t &b) {
-	return a.isrc > b.isrc;
-}
-
-void outputSingleOri() {
+// void outputSingleDFS_best_version_v0() {
+void outputSingleDFS() {
 	stopwatch.resume();
 	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
-
-	string encodestrfn = folder + "encodestr.txt";
-	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
-	string rootstrfn = folder + "rootstr.txt";
-	FILE *fproot = fopen(rootstrfn.c_str(), "w");
-
-	std::ofstream fporder;
-	string orderfn;
-	if (isorder) {
-		orderfn = folder + string("order.bin");
-		// string orderfn = string("order.bin");  // for test
-		// fporder = fopen(orderfn.c_str(), "wb");
-		fporder.open(orderfn, std::ios::binary);
-	}
-
-	// cout << "begin outputSingle() \n";
-
-	vector<ROOTNODE_t> rootnodevec;
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-			queue<uint32_t> q;
-			q.push(rid);
-			uint32_t cnt = 0;
-			while (!q.empty()) {
-				uint32_t noderid = q.front();		
-				q.pop();
-				++cnt;
-				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-					q.push(reads[noderid].crid.a[i]);
-				}
-			}
-			rootnodevec.push_back(ROOTNODE_t(rid, cnt));
-		}
-	}
-	sort(rootnodevec.begin(), rootnodevec.end(), cmp);
-
-	bool *visited = new bool[max_rid];
-	memset(visited, false, sizeof(bool)*max_rid);
-
-	int trees_cnt = 0;
-	uint8bit_v dirbin;
-	dirbin.n = dirbin.a = 0;
-
-	string dirbinfn = folder + "dir.bin";
-	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
-
-	size_t ss = sizeof(size_t);
-	char *en_str = (char*)alloca((L + 1) * sizeof(char));
-	int dir;
-	uint32_t dn, difid;
-	// FILE *fpencoded = fopen("encoded.txt", "w");
-
-	// cout << "1111 \n";
-	if (isorder) {
-		for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-
-			/*if (isorder) {
-				// sort the reads 
-				uint32_t rootid = rootnodevec[i].rid, crid;				
-				queue<uint32_t> q;
-				q.push(rootid);
-				while (!q.empty()) {
-					rootid = q.front(); 
-					q.pop();
-					for (uint32_t i = 0; i < reads[rootid].crid.n; ++i) {
-						crid = reads[rootid].crid.a[i];
-						if (reads[crid].dn > 0) {
-
-						}
-					}
-
-					dn = reads[rootid].dn;
-					for (uint32_t i = 0; i < reads[noderid].crid.n; ++i) {
-						q.push(reads[noderid].crid.a[i]);
-					}
-				}
-			}*/
-
-			bool tdebug = false;
-			// tdebug = true;
-			// cout << "i: " << i << endl;
-			// if (i == 57185) tdebug = true;
-
-			size_t cnt = rootnodevec[i].nodecnt;
-
-			uint32_t rootid = rootnodevec[i].rid;
-
-			if (rootid == 57185) tdebug = true;
-			if (tdebug) {
-				cout << "cnt: " << cnt << endl;
-				cout << "rootid: " << rootid << endl;
-			}
-			uint32_t num = 0;
-			while (rootid < max_rid) {
-				++ num;
-				visited[rootid] = true;
-
-				tdebug = false;
-				if (rootid == 464744) tdebug = true;
-
-				if (tdebug) cout << "rootid: " << rootid << endl;
-
-				dn = reads[rootid].dn;
-
-				if (dn > 0) {
-					// reads[rootid].dup[dn] = dup_t(rootid, reads[rootid].isrc);
-					reads[rootid].dup[0].isrc = reads[rootid].isrc;
-					// if (dn > 5) {
-					// 	for (uint32_t w = 0; w < reads[rootid].dn + 1; ++w) {
-					// 		cout << reads[rootid].dup[w].id << endl;
-					// 	}
-					// 	cout << "rootid: " << rootid << endl;
-					// 	exit(0);
-					// }
-					// sort(reads[rootid].dup, reads[rootid].dup + dn + 1, cmpdupid);
-				}
-
-				// if (rootid == 0) {
-				if (tdebug) {
-					cout << seq[rootid].seq << endl;
-					cout << reads[rootid].dn << endl;
-					cout << "dn: " << dn << endl;
-					cout << "isrc: " << reads[rootid].isrc << endl;
-					// cout << "num: " << num << endl;
-					// cout << rootnodevec[i].rid << endl;
-				}
-
-				if (num == 1) {
-					if (dn > 0) {
-						fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// dir = 0; // 0 not changed
-						// if (reads[rootid].isrc) dir = 1; // changed
-						// bit_push(dirbin, fpdir, dir);
-
-						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							
-							visited[reads[rootid].dup[w].id] = true;
-						}
-
-						fporder.write((char*)&reads[rootid].dup[0].id, sizeof(uint32_t));
-						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-							difid = reads[rootid].dup[w].id - reads[rootid].dup[w-1].id;
-							fporder.write((char*)&difid, sizeof(uint32_t));
-							// if (reads[rootid].dup[w].id == 464744) cout << "HERERERERE1111" << endl;
-						}
-					} else {
-						fprintf(fproot, "%s\n", seq[rootid].seq);
-						fporder.write((char*)&rootid, sizeof(uint32_t));
-					}
-
-					if (tdebug) {
-						fprintf(stderr, "---root---\n");
-						fprintf(stderr, "%s\n", seq[rootid].seq);
-						fprintf(stderr, "------\n");
-					}
-
-					rootid = reads[rootid].getChildren();
-				} else {					
-					if (dn > 0) {
-						fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-						fporder.write((char*)&reads[rootid].dup[0].id, sizeof(uint32_t));
-						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-							difid = reads[rootid].dup[w].id - reads[rootid].dup[w-1].id;
-							fporder.write((char*)&difid, sizeof(uint32_t));
-						}
-
-						// dir = 0; // 
-						// if (reads[rootid].isrc) dir = 1; // 
-						// bit_push(dirbin, fpdir, dir);
-						for (uint32_t w = 0; w < reads[rootid].dn + 1; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							
-							// if (reads[rootid].dup[w].id == 20371) cout << "HERERERERE00000" << endl;
-							visited[reads[rootid].dup[w].id] = true;
-						}
-					} else {
-						dir = 0;
-						if (reads[rootid].isrc) dir = 1;
-						bit_push(dirbin, fpdir, dir);
-
-						fprintf(fpenstr, "%s\n", seq[rootid].seq);
-						fporder.write((char*)&rootid, sizeof(uint32_t));
-					}
-					// fprintf(fpencoded, "%s\n", seq[rootid].seq);
-
-					if (num >= cnt) {
-						rootid = max_rid + 1;
-						break;
-					}
-					uint32_t child = reads[rootid].getChildren();
-
-					int back_step = 0;
-					while (child > max_rid) { // no leaf node or all children are visited
-						// back
-						rootid = reads[rootid].prid;
-						child = reads[rootid].getChildren();
-						++back_step;
-					}
-					if (back_step > 0) {
-						fprintf(fpenstr, "%d\n", back_step);
-					}
-					rootid = child;
-				}
-
-				// if (rootid == 0) exit(0);
-			}
-			fprintf(fpenstr, "-\n");
-		}
-	} else {
-		for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-
-			bool tdebug = false;
-			// tdebug = true;
-			// cout << "i: " << i << endl;
-			// if (i == 419719) tdebug = true;
-
-			size_t cnt = rootnodevec[i].nodecnt;
-
-			uint32_t rootid = rootnodevec[i].rid;
-
-			// if (rootid == 211517) tdebug = true;
-			if (tdebug) {
-				cout << "cnt: " << cnt << endl;
-				cout << "rootid: " << rootid << endl;
-			}
-			uint32_t num = 0;
-			while (rootid < max_rid) {
-				++ num;
-				visited[rootid] = true;
-
-				if (tdebug) cout << "rootid: " << rootid << endl;
-
-				dn = reads[rootid].dn;
-
-				if (dn > 0) {
-					// reads[rootid].dup[dn] = dup_t(rootid, reads[rootid].isrc);
-					if (reads[rootid].isrc) { // sort 1 to 0
-						sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc1);
-					} else { //small value 0 first
-						sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc0);
-					}
-				}
-
-				// if (rootid == 0) {
-				if (tdebug) {
-					cout << seq[rootid].seq << endl;
-					cout << reads[rootid].dn << endl;
-					// cout << "num: " << num << endl;
-					// cout << rootnodevec[i].rid << endl;
-				}
-
-				if (num == 1) {
-					if (dn > 0) {
-						fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							visited[reads[rootid].dup[w].id] = true;
-						}
-					} else {
-						fprintf(fproot, "%s\n", seq[rootid].seq);
-						if (isorder) {
-							fporder.write((char*)&rootid, sizeof(uint32_t));
-						}
-					}
-
-					if (tdebug) {
-						fprintf(stderr, "---root---\n");
-						fprintf(stderr, "%s\n", seq[rootid].seq);
-						fprintf(stderr, "------\n");
-					}
-
-					rootid = reads[rootid].getChildren();
-				} else {
-					dir = 0;
-					if (reads[rootid].isrc) dir = 1; // 
-					bit_push(dirbin, fpdir, dir);
-					
-					if (dn > 0) {
-						fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							
-							visited[reads[rootid].dup[w].id] = true;
-						}
-					} else {
-						// dir = 0;
-						// if (reads[rootid].isrc) dir = 1;
-						// bit_push(dirbin, fpdir, dir);
-
-						fprintf(fpenstr, "%s\n", seq[rootid].seq);
-					}
-					// fprintf(fpencoded, "%s\n", seq[rootid].seq);
-
-					if (num >= cnt) {
-						rootid = max_rid + 1;
-						break;
-					}
-					uint32_t child = reads[rootid].getChildren();
-
-					int back_step = 0;
-					while (child > max_rid) { // no leaf node or all children are visited
-						// back
-						rootid = reads[rootid].prid;
-						child = reads[rootid].getChildren();
-						++back_step;
-					}
-					if (back_step > 0) {
-						fprintf(fpenstr, "%d\n", back_step);
-					}
-					rootid = child;
-				}
-
-				// if (rootid == 0) exit(0);
-			}
-			fprintf(fpenstr, "-\n");
-		}
-	}
-	
-	// cout << "2222111 \n";
-
-	if (dirbin.n > 0) { 
-		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
-	}
-	fpdir.close();
-
-	// cout << "2222111222 \n";
-	// delete
-	rootnodevec.clear();
-	// cout << "2222111222333 \n";
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		kv_destroy(reads[rid].crid);
-	}
-	// cout << "2222111222333444 \n";
-	delete[] reads;
-	// cout << "2222111222333444555 \n";
-
-	fclose(fproot);
-	// cout << "2222111222333444555666 \n";
-	fclose(fpenstr);
-	// cout << "2222111222333444555666777 \n";
-
-	uint8bit_v singlebin;
-	singlebin.a = singlebin.n = 0;
-
-	// sprintf(name, "singleton.bin");
-	string singletonfn = folder + "singleton.bin"; 
-	std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
-
-	string readsnfn = folder + "readsN.txt";
-	FILE *fpN = fopen(readsnfn.c_str(), "w");
-	int ncnt;
-
-	// cout << "3333 \n";
-
-	// FILE *fpsg = fopen("single.txt", "w");
-
-	uint32_t sgcnt = 0, prerid = 0, nrid;
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (!visited[rid]) {
-			ncnt = 0;
-			for (int i = 0; i < L; ++i) {
-				if (seq[rid].seq[i] == 'N') ++ncnt;
-			}
-			if (ncnt > 0) {
-				fprintf(fpN, "%s\n", seq[rid].seq);
-				if (isorder) {
-					nrid = rid - prerid;
-					fporder.write((char*)&nrid, sizeof(uint32_t));
-					prerid = rid;
-				}
-			} else {
-				++ sgcnt;
-				// fprintf(fpsg, "%s\n", seq[rid].seq);
-				for (int i = 0; i < L; ++i) {
-					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-				}
-			}
-		}
-	}
-	// fclose(fpsg);
-
-	fclose(fpN);
-	if (singlebin.n > 0) {
-		singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-	}
-	singleOfs.close();
-
-	delete[] visited;
-	
-	cout << "sgcnt: " << sgcnt << endl;
-	if (isorder) {
-		// fclose(fporder);
-		fporder.close();
-	}
-
-	// cout << "trees_cnt: " << trees_cnt << "\n";
-	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
-	stopwatch.resume();
-
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(rootstrfn.c_str(), (rootstrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(singletonfn.c_str(), (singletonfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(readsnfn.c_str(), (readsnfn+".bsc").c_str(), 64);
-
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc singleton.bin.bsc dir.bin.bsc readsN.txt.bsc";
-
-	if (isorder) {
-		// mstcom::bsc::BSC_compress(orderfn.c_str(), (orderfn+".bsc").c_str(), 64);
-		mstcom::lzma::lzma_compress(orderfn.c_str(), (orderfn+".lzma").c_str());
-		tarcmd += " order.bin.lzma";
-	}
-
-	cout << tarcmd << endl;
-
-	int status = system(tarcmd.c_str());
-	if (status < 0) {
-		fprintf(stderr, "cmd: %s\t error: %s", tarcmd, strerror(errno));
-	}
-	if(WIFEXITED(status)) {
-		    fprintf(stderr, "normal termination, exit status = %d\n", WEXITSTATUS(status)); //取得cmdstring执行结果
-	}
-	else if(WIFSIGNALED(status)) {
-		fprintf(stderr, "abnormal termination,signal number =%d\n", WTERMSIG(status)); //如果cmdstring被信号中断，取得信号值
-	} 
-	else if(WIFSTOPPED(status)) {
-		fprintf(stderr, "process stopped, signal number =%d\n", WSTOPSIG(status)); //如果cmdstring被信号暂停执行，取得信号值
-	}
-	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
-
-}
-
-void outputSingle_() {
-	stopwatch.resume();
-	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
-
-	string encodestrfn = folder + "encodestr.txt";
-	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
-	string rootstrfn = folder + "rootstr.txt";
-	FILE *fproot = fopen(rootstrfn.c_str(), "w");
-
-	std::ofstream fporder;
-	string orderfn;
-	if (isorder) {
-		orderfn = folder + string("order.bin");
-		// string orderfn = string("order.bin");  // for test
-		// fporder = fopen(orderfn.c_str(), "wb");
-		fporder.open(orderfn, std::ios::binary);
-	}
-
-	// cout << "begin outputSingle() \n";
-
-	// vector<ROOTNODE_t> rootnodevec;
-	// for (uint32_t rid = 0; rid < max_rid; ++rid) {
-	// 	if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-	// 		queue<uint32_t> q;
-	// 		q.push(rid);
-	// 		uint32_t cnt = 0;
-	// 		while (!q.empty()) {
-	// 			uint32_t noderid = q.front();		
-	// 			q.pop();
-	// 			++cnt;
-	// 			for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-	// 				q.push(reads[noderid].crid.a[i]);
-	// 			}
-	// 		}
-	// 		rootnodevec.push_back(ROOTNODE_t(rid, cnt));
-	// 	}
-	// }
-	// sort(rootnodevec.begin(), rootnodevec.end(), cmp);
-
-	bool *visited = new bool[max_rid];
-	memset(visited, false, sizeof(bool)*max_rid);
-
-	int trees_cnt = 0;
-	uint8bit_v dirbin;
-	dirbin.n = dirbin.a = 0;
-
-	string dirbinfn = folder + "dir.bin";
-	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
-
-	size_t ss = sizeof(size_t);
-	char *en_str = (char*)alloca((L + 1) * sizeof(char));
-	int dir;
-	uint32_t dn, difid;
-	// FILE *fpencoded = fopen("encoded.txt", "w");
-	/// current is OK.........................................
-	// cout << "1111 \n";
-	if (isorder) {
-		uint32_t prerootrid = 0;
-		for (uint32_t rid = 0; rid < max_rid; ++rid) 
-		if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-		// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-			queue<uint32_t> q;
-			q.push(rid);
-			uint32_t cnt = 0;
-			while (!q.empty()) {
-				uint32_t noderid = q.front();		
-				q.pop();
-				++cnt;
-				// sort reads[rnoderid].crid
-				sort(reads[noderid].crid.a, reads[noderid].crid.a + reads[noderid].crid.n);
-				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-					q.push(reads[noderid].crid.a[i]);
-				}
-			}
-
-			bool tdebug = false;
-			// tdebug = true;
-			// cout << "i: " << i << endl;
-			// if (i == 57185) tdebug = true;
-			// size_t cnt = rootnodevec[i].nodecnt;
-
-			uint32_t rootid = rid;
-
-			// if (rootid == 57185) tdebug = true;
-			if (tdebug) {
-				cout << "cnt: " << cnt << endl;
-				cout << "rootid: " << rootid << endl;
-			}
-			uint32_t num = 0;
-			while (rootid < max_rid) {
-				++ num;
-				visited[rootid] = true;
-
-				tdebug = false;
-				// if (rootid == 464744) tdebug = true;
-
-				if (tdebug) cout << "rootid: " << rootid << endl;
-
-				dn = reads[rootid].dn;
-
-				if (dn > 0) {
-					// reads[rootid].dup[dn] = dup_t(rootid, reads[rootid].isrc);
-					reads[rootid].dup[0].isrc = reads[rootid].isrc;
-				}
-
-				// if (rootid == 0) {
-				if (tdebug) {
-					cout << seq[rootid].seq << endl;
-					cout << reads[rootid].dn << endl;
-					cout << "dn: " << dn << endl;
-					cout << "isrc: " << reads[rootid].isrc << endl;
-					// cout << "num: " << num << endl;
-					// cout << rootnodevec[i].rid << endl;
-				}
-
-				if (num == 1) {
-					difid = rootid - prerootrid;
-					// difid = rootid;
-					fporder.write((char*)&difid, sizeof(uint32_t));
-
-					prerootrid = rootid;
-
-					if (dn > 0) {
-						if (dn == 1)
-							fprintf(fproot, "%s$\n", seq[rootid].seq);
-						else 
-							fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							
-							difid = reads[rootid].dup[w].id - reads[rootid].dup[w-1].id;
-							fporder.write((char*)&difid, sizeof(uint32_t));
-
-							visited[reads[rootid].dup[w].id] = true;
-						}
-						// fporder.write((char*)&reads[rootid].dup[0].id, sizeof(uint32_t));
-						// for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-							// if (reads[rootid].dup[w].id == 464744) cout << "HERERERERE1111" << endl;
-						// }
-					} else {
-						fprintf(fproot, "%s\n", seq[rootid].seq);
-					}
-
-					if (tdebug) {
-						fprintf(stderr, "---root---\n");
-						fprintf(stderr, "%s\n", seq[rootid].seq);
-						fprintf(stderr, "------\n");
-					}
-
-					rootid = reads[rootid].getChildren();
-				} else {					
-					dir = 0;
-					if (reads[rootid].isrc) dir = 1;
-					bit_push(dirbin, fpdir, dir);
-					difid = rootid - reads[reads[rootid].prid].prechildrid;
-					fporder.write((char*)&difid, sizeof(uint32_t));
-
-					reads[reads[rootid].prid].prechildrid = rootid;
-
-					if (dn > 0) {
-						if (dn == 1)
-							fprintf(fpenstr, "%s$\n", seq[rootid].seq);
-						else 
-							fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							// if (reads[rootid].dup[w].id == 20371) cout << "HERERERERE00000" << endl;
-							difid = reads[rootid].dup[w].id - reads[rootid].dup[w-1].id;
-							fporder.write((char*)&difid, sizeof(uint32_t));
-
-							visited[reads[rootid].dup[w].id] = true;
-						}
-					} else {
-						fprintf(fpenstr, "%s\n", seq[rootid].seq);
-					}
-					// fprintf(fpencoded, "%s\n", seq[rootid].seq);
-
-					if (num >= cnt) {
-						rootid = max_rid + 1;
-						break;
-					}
-					uint32_t child = reads[rootid].getChildren();
-
-					int back_step = 0;
-					while (child > max_rid) { // no leaf node or all children are visited
-						// back
-						rootid = reads[rootid].prid;
-						child = reads[rootid].getChildren();
-						++back_step;
-					}
-					if (back_step > 0) {
-						fprintf(fpenstr, "%d\n", back_step);
-					}
-					rootid = child;
-				}
-
-				// if (rootid == 0) exit(0);
-			}
-			fprintf(fpenstr, "-\n");
-		}
-	} else {
-		// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-		for (uint32_t rid = 0; rid < max_rid; ++rid) 
-		if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-		// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-			queue<uint32_t> q;
-			q.push(rid);
-			uint32_t cnt = 0;
-			while (!q.empty()) {
-				uint32_t noderid = q.front();		
-				q.pop();
-				++cnt;
-				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-					q.push(reads[noderid].crid.a[i]);
-				}
-			}
-
-			bool tdebug = false;
-			// tdebug = true;
-			// cout << "i: " << i << endl;
-			// if (i == 419719) tdebug = true;
-
-			// size_t cnt = rootnodevec[i].nodecnt;
-
-			uint32_t rootid = rid;
-
-			// if (rootid == 211517) tdebug = true;
-			if (tdebug) {
-				cout << "cnt: " << cnt << endl;
-				cout << "rootid: " << rootid << endl;
-			}
-			uint32_t num = 0;
-			while (rootid < max_rid) {
-				++ num;
-				visited[rootid] = true;
-
-				if (tdebug) cout << "rootid: " << rootid << endl;
-
-				dn = reads[rootid].dn;
-
-				if (dn > 0) {
-					// reads[rootid].dup[dn] = dup_t(rootid, reads[rootid].isrc);
-					if (reads[rootid].isrc) { // sort 1 to 0
-						sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc1);
-					} else { //small value 0 first
-						sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc0);
-					}
-				}
-
-				// if (rootid == 0) {
-				if (tdebug) {
-					cout << seq[rootid].seq << endl;
-					cout << reads[rootid].dn << endl;
-					// cout << "num: " << num << endl;
-					// cout << rootnodevec[i].rid << endl;
-				}
-
-				if (num == 1) {
-					if (dn > 0) {
-						if (dn == 1)
-							fprintf(fproot, "%s$\n", seq[rootid].seq);
-						else 
-							fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							visited[reads[rootid].dup[w].id] = true;
-						}
-					} else {
-						fprintf(fproot, "%s\n", seq[rootid].seq);
-						if (isorder) {
-							fporder.write((char*)&rootid, sizeof(uint32_t));
-						}
-					}
-
-					if (tdebug) {
-						fprintf(stderr, "---root---\n");
-						fprintf(stderr, "%s\n", seq[rootid].seq);
-						fprintf(stderr, "------\n");
-					}
-
-					rootid = reads[rootid].getChildren();
-				} else {
-					dir = 0;
-					if (reads[rootid].isrc) dir = 1; // 
-					bit_push(dirbin, fpdir, dir);
-					
-					if (dn > 0) {
-						if (dn == 1)
-							fprintf(fpenstr, "%s$\n", seq[rootid].seq);
-						else 
-							fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-						// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-							dir = 0;
-							if (reads[rootid].dup[w].isrc) dir = 1;
-							bit_push(dirbin, fpdir, dir);
-							
-							visited[reads[rootid].dup[w].id] = true;
-						}
-					} else {
-						// dir = 0;
-						// if (reads[rootid].isrc) dir = 1;
-						// bit_push(dirbin, fpdir, dir);
-
-						fprintf(fpenstr, "%s\n", seq[rootid].seq);
-					}
-					// fprintf(fpencoded, "%s\n", seq[rootid].seq);
-
-					if (num >= cnt) {
-						rootid = max_rid + 1;
-						break;
-					}
-					uint32_t child = reads[rootid].getChildren();
-
-					int back_step = 0;
-					while (child > max_rid) { // no leaf node or all children are visited
-						// back
-						rootid = reads[rootid].prid;
-						child = reads[rootid].getChildren();
-						++back_step;
-					}
-					if (back_step > 0) {
-						fprintf(fpenstr, "%d\n", back_step);
-					}
-					rootid = child;
-				}
-
-				// if (rootid == 0) exit(0);
-			}
-			fprintf(fpenstr, "-\n");
-		}
-	}
-	
-	// cout << "2222111 \n";
-
-	if (dirbin.n > 0) { 
-		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
-	}
-	fpdir.close();
-
-	// cout << "2222111222 \n";
-	// delete
-	// rootnodevec.clear();
-	// cout << "2222111222333 \n";
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		kv_destroy(reads[rid].crid);
-	}
-	// cout << "2222111222333444 \n";
-	delete[] reads;
-	// cout << "2222111222333444555 \n";
-
-	// cout << "2222111222333444555666 \n";
-	fclose(fpenstr);
-	// cout << "2222111222333444555666777 \n";
-
-	uint8bit_v singlebin;
-	singlebin.a = singlebin.n = 0;
-
-	// sprintf(name, "singleton.bin");
-	string singletonfn = folder + "singleton.bin"; 
-	// FILE *fpsg = fopen(singletonfn.c_str(), "w");
-	std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
-
-	// string readsnfn = folder + "readsN.txt";
-	// FILE *fpN = fopen(readsnfn.c_str(), "w");
-	int ncnt;
-
-	// cout << "3333 \n";
-
-	// string sgfn = folder + "single.txt"; 
-	// FILE *fpsg = fopen(sgfn.c_str(), "w");
-
-	fprintf(fproot, "-\n");
-
-	uint32_t sgcnt = 0, prerid = 0, nrid;
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (!visited[rid]) {
-			ncnt = 0;
-			for (int i = 0; i < L; ++i) {
-				if (seq[rid].seq[i] == 'N') ++ncnt;
-			}
-			if (ncnt > 0) {
-				fprintf(fproot, "%s\n", seq[rid].seq);
-				if (isorder) {
-					nrid = rid - prerid;
-					fporder.write((char*)&nrid, sizeof(uint32_t));
-					prerid = rid;
-				}
-			} else {
-				++ sgcnt;
-				for (int i = 0; i < L; ++i) {
-					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-				}
-			}
-		}
-	}
-
-	// fclose(fpN);
-	fclose(fproot);
-	if (singlebin.n > 0) {
-		singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-	}
-	singleOfs.close();
-
-	delete[] visited;
-	
-	cout << "sgcnt: " << sgcnt << endl;
-	if (isorder) {
-		// fclose(fporder);
-		fporder.close();
-	}
-
-	// cout << "trees_cnt: " << trees_cnt << "\n";
-	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
-	stopwatch.resume();
-
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(rootstrfn.c_str(), (rootstrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(singletonfn.c_str(), (singletonfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	// mstcom::bsc::BSC_compress(readsnfn.c_str(), (readsnfn+".bsc").c_str(), 64);
-
-	// mstcom::bsc::BSC_compress(sgfn.c_str(), (sgfn+".bsc").c_str(), 64);
-
-	// string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc singleton.bin.bsc dir.bin.bsc readsN.txt.bsc";
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc singleton.bin.bsc dir.bin.bsc";
-
-	if (isorder) {
-		// mstcom::bsc::BSC_compress(orderfn.c_str(), (orderfn+".bsc").c_str(), 64);
-		mstcom::lzma::lzma_compress(orderfn.c_str(), (orderfn+".lzma").c_str());
-		tarcmd += " order.bin.lzma";
-	}
-
-	cout << tarcmd << endl;
-
-	int status = system(tarcmd.c_str());
-	if (status < 0) {
-		fprintf(stderr, "cmd: %s\t error: %s", tarcmd, strerror(errno));
-	}
-	if(WIFEXITED(status)) {
-		    fprintf(stderr, "normal termination, exit status = %d\n", WEXITSTATUS(status)); //取得cmdstring执行结果
-	}
-	else if(WIFSIGNALED(status)) {
-		fprintf(stderr, "abnormal termination,signal number =%d\n", WTERMSIG(status)); //如果cmdstring被信号中断，取得信号值
-	} 
-	else if(WIFSTOPPED(status)) {
-		fprintf(stderr, "process stopped, signal number =%d\n", WSTOPSIG(status)); //如果cmdstring被信号暂停执行，取得信号值
-	}
-	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
-
-}
-
-void outputSingle() {
-	stopwatch.resume();
-	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
+	char *encstr = (char*)alloca((L + 1) * sizeof(char));
 
 	string encodestrfn = folder + "encodestr.txt";
 	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
@@ -1138,16 +22,34 @@ void outputSingle() {
 	uint8bit_v dirbin;
 	dirbin.n = dirbin.a = 0;
 
+	uint8bit_v isleftbin;
+	isleftbin.n = isleftbin.a = 0;
+	
+	uint8bit_v isdupbin;
+	isdupbin.n = isdupbin.a = 0;
+
 	string dirbinfn = folder + "dir.bin";
 	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
 
-	size_t ss = sizeof(size_t);
-	char *en_str = (char*)alloca((L + 1) * sizeof(char));
-	int dir;
-	uint32_t dn, difid;
+	string isleftbinfn = folder + "isleft.bin";
+	std::ofstream fpisleft(isleftbinfn.c_str(), std::ios::binary);
+
+	string isdupfn = folder + "isdup.bin";
+	std::ofstream fpisdup(isdupfn.c_str(), std::ios::binary);
+
+	string dupfn = folder + "dup.bin";
+	std::ofstream fpdup(dupfn, std::ios::binary);
+
+	// FILE *fpw = fopen("eenc.seq", "w");
+
+	// uint32_t numberofbackstep = 0;
+	uint32_t dupno = 0, rcdupno = 0;
+	// uint32_t dupnum = 0, printnum = 0;
+	// cout << "111" << endl;
 	for (uint32_t rid = 0; rid < max_rid; ++rid) 
-	if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-	// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
+	if (!visited[rid] && reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
+		// cout << "134904's parent " << reads[134904].prid << endl;
+		// cout << "reads no. in this tree: " << rootnodevec[i].nodecnt << endl;
 		queue<uint32_t> q;
 		q.push(rid);
 		uint32_t cnt = 0;
@@ -1155,66 +57,107 @@ void outputSingle() {
 			uint32_t noderid = q.front();		
 			q.pop();
 			++cnt;
+			visited[noderid] = true;
+			// gridvec.push_back(noderid);
+			for (size_t i = 0; i < reads[noderid].dn; ++i) {
+				visited[reads[noderid].dup[i].id] = true;
+			}
 			for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
 				q.push(reads[noderid].crid.a[i]);
 			}
 		}
 
 		uint32_t rootid = rid;
+		int dir;
+		uint32_t dn;
+		int preshiftdirection = 0; // 0 for left shift; 1 for right shift;
 
 		uint32_t num = 0;
 		while (rootid < max_rid) {
 			++ num;
-			visited[rootid] = true;
-
 			dn = reads[rootid].dn;
-			if (dn > 0) {
-				if (reads[rootid].isrc) { // sort 1 to 0
-					sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc1);
-				} else { //small value 0 first
-					sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc0);
-				}
-			}
 
 			if (num == 1) {
-				if (dn > 0) {
-					if (dn == 1)
-						fprintf(fpenstr, "%s$\n", seq[rootid].seq);
-					else 
-						fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-					// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
+				fprintf(fpenstr, "%s\n", seq[rootid].seq);
+				// ++ printnum;
+
+				// fprintf(fpw, "%s\n", seq[rootid].seq);
+				{
+					dupno = 0; rcdupno = 0;
 					for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-						dir = 0;
-						if (reads[rootid].dup[w].isrc) dir = 1;
-						bit_push(dirbin, fpdir, dir);
-						visited[reads[rootid].dup[w].id] = true;
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+						if (reads[rootid].dup[w].isrc) ++ rcdupno;
+						else ++ dupno;
 					}
-				} else {
-					fprintf(fpenstr, "%s\n", seq[rootid].seq);
+					// for (uint32_t w = 0; w < dupno; ++w) {
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+					// for (uint32_t w = 0; w < rcdupno; ++w) {
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+
+					if (0 == dupno && 0 == rcdupno) {
+						bit_push(isdupbin, fpisdup, 0);
+					} else {
+						bit_push(isdupbin, fpisdup, 1);
+						fpdup.write((char*)&dupno, sizeof(uint32_t));
+						fpdup.write((char*)&rcdupno, sizeof(uint32_t));
+					}
 				}
+
 				rootid = reads[rootid].getChildren();
 			} else {
-				dir = 0;
-				if (reads[rootid].isrc) dir = 1; // 
+				dir = reads[rootid].isrc ? 1 : 0;
 				bit_push(dirbin, fpdir, dir);
-				
-				if (dn > 0) {
-					if (dn == 1)
-						fprintf(fpenstr, "%s$\n", seq[rootid].seq);
-					else 
-						fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
 
-					for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-						dir = 0;
-						if (reads[rootid].dup[w].isrc) dir = 1;
-						bit_push(dirbin, fpdir, dir);
-						
-						visited[reads[rootid].dup[w].id] = true;
+				// encode_v3(rootid, encstr);
+				strcpy(encstr, seq[rootid].seq);
+				
+				// fprintf(fpw, "%s\n", seq[rootid].seq);
+				// ++ printnum;
+
+				fprintf(fpenstr, "%s\n", encstr);
+
+				if (reads[rootid].shift != 0) {
+					// bit for shift offset
+					if (reads[rootid].shift > 0) {
+						bit_push(isleftbin, fpisleft, 1);
+					} else {
+						bit_push(isleftbin, fpisleft, 0);
 					}
-				} else {
-					fprintf(fpenstr, "%s\n", seq[rootid].seq);
 				}
 
+				{
+					dupno = 0; rcdupno = 0;
+					for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+						if (reads[rootid].dup[w].isrc) ++ rcdupno;
+						else ++ dupno;
+					}
+					// for (uint32_t w = 0; w < dupno; ++w) {
+					// 	fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+					// for (uint32_t w = 0; w < rcdupno; ++w) {
+					// 	fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+
+					if (0 == dupno && 0 == rcdupno) {
+						bit_push(isdupbin, fpisdup, 0);
+					} else {
+						bit_push(isdupbin, fpisdup, 1);
+						fpdup.write((char*)&dupno, sizeof(uint32_t));
+						fpdup.write((char*)&rcdupno, sizeof(uint32_t));
+					}
+				} 
+			
 				if (num >= cnt) {
 					rootid = max_rid + 1;
 					break;
@@ -1230,23 +173,298 @@ void outputSingle() {
 				}
 				if (back_step > 0) {
 					fprintf(fpenstr, "%d\n", back_step);
+					// ++ numberofbackstep;
 				}
 				rootid = child;
 			}
-
 		}
-		// fprintf(fpenstr, "-\n");
 	}
 	
-	// cout << "2222111 \n";
-
 	if (dirbin.n > 0) { 
 		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
 	}
 	fpdir.close();
 
+	if (isdupbin.n > 0) { 
+		fpisdup.write((char*)&isdupbin.a, sizeof(uint8_t));
+	}
+	fpisdup.close();
+
+	if (isleftbin.n > 0) { 
+		fpisleft.write((char*)&isleftbin.a, sizeof(uint8_t));
+	}
+	fpisleft.close();
+
+	// cout << "debugcnt: " << debugcnt << endl;
+	// cout << "printnum: " << printnum << endl;
+	// cout << "dupnum: " << dupnum << endl;
+	// fclose(fpw);
+	// fpdig.close();
+	fpdup.close();
+
+	// cout << "numberofbackstep: " << numberofbackstep << endl;
+
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		kv_destroy(reads[rid].crid);
+		if (reads[rid].crid.n > 0)
+			kv_destroy(reads[rid].crid);
+	}
+	delete[] reads;
+	fprintf(fpenstr, "-\n");
+
+	int ncnt;
+
+	// FILE *fpencsg = fopen("encsg.txt", "w");
+	uint32_t sgcnt = 0, prerid = 0, nrid;
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		if (!visited[rid]) {
+			// fprintf(fpencsg, "%s\n", seq[rid].seq);
+			fprintf(fpenstr, "%s\n", seq[rid].seq);
+			// ++ sgcnt;
+		}
+	}
+
+	// fclose(fpencsg);
+	fclose(fpenstr);
+	delete[] visited;
+	
+	// cout << "sgcnt: " << sgcnt << endl;
+	// cout << "trees_cnt: " << trees_cnt << "\n";
+	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
+	stopwatch.resume();
+
+	vector<string> f1s, f2s;
+	f1s.push_back(encodestrfn);
+	f1s.push_back(dirbinfn);
+	// f1s.push_back(parentbinfn);
+	f1s.push_back(dupfn);
+	f1s.push_back(isdupfn);
+	f1s.push_back(isleftbinfn);
+
+	compressFiles(f1s, f2s);
+
+	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc dir.bin.bsc "; 
+	tarcmd += " dup.bin.bsc";
+	tarcmd += " isdup.bin.bsc";
+	tarcmd += " isleft.bin.bsc";
+
+	int status = system(tarcmd.c_str());
+	if (status < 0) {
+		fprintf(stderr, "cmd: %s\t error: %s", tarcmd, strerror(errno));
+	}
+	if(WIFEXITED(status)) {
+		    fprintf(stderr, "normal termination, exit status = %d\n", WEXITSTATUS(status)); //取得cmdstring执行结果
+	}
+	else if(WIFSIGNALED(status)) {
+		fprintf(stderr, "abnormal termination,signal number =%d\n", WTERMSIG(status)); //如果cmdstring被信号中断，取得信号值
+	} 
+	else if(WIFSTOPPED(status)) {
+		fprintf(stderr, "process stopped, signal number =%d\n", WSTOPSIG(status)); //如果cmdstring被信号暂停执行，取得信号值
+	}
+	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
+}
+
+// store singleton in a seperate file
+void outputSingleDFS_best_version_v0() {
+// void outputSingleDFS() {
+	stopwatch.resume();
+	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
+	char *encstr = (char*)alloca((L + 1) * sizeof(char));
+
+	string encodestrfn = folder + "encodestr.txt";
+	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
+	
+	bool *visited = new bool[max_rid];
+	memset(visited, false, sizeof(bool)*max_rid);
+
+	int trees_cnt = 0;
+	uint8bit_v dirbin;
+	dirbin.n = dirbin.a = 0;
+
+	uint8bit_v isleftbin;
+	isleftbin.n = isleftbin.a = 0;
+	
+	uint8bit_v isdupbin;
+	isdupbin.n = isdupbin.a = 0;
+
+	string dirbinfn = folder + "dir.bin";
+	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
+
+	string isleftbinfn = folder + "isleft.bin";
+	std::ofstream fpisleft(isleftbinfn.c_str(), std::ios::binary);
+
+	string isdupfn = folder + "isdup.bin";
+	std::ofstream fpisdup(isdupfn.c_str(), std::ios::binary);
+
+	string dupfn = folder + "dup.bin";
+	std::ofstream fpdup(dupfn, std::ios::binary);
+
+	// FILE *fpw = fopen("eenc.seq", "w");
+
+	// uint32_t numberofbackstep = 0;
+	uint32_t dupno = 0, rcdupno = 0;
+	// uint32_t dupnum = 0, printnum = 0;
+	// cout << "111" << endl;
+	for (uint32_t rid = 0; rid < max_rid; ++rid) 
+	if (!visited[rid] && reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
+		// cout << "134904's parent " << reads[134904].prid << endl;
+		// cout << "reads no. in this tree: " << rootnodevec[i].nodecnt << endl;
+		queue<uint32_t> q;
+		q.push(rid);
+		uint32_t cnt = 0;
+		while (!q.empty()) {
+			uint32_t noderid = q.front();		
+			q.pop();
+			++cnt;
+			visited[noderid] = true;
+			// gridvec.push_back(noderid);
+			for (size_t i = 0; i < reads[noderid].dn; ++i) {
+				visited[reads[noderid].dup[i].id] = true;
+			}
+			for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
+				q.push(reads[noderid].crid.a[i]);
+			}
+		}
+
+		uint32_t rootid = rid;
+		int dir;
+		uint32_t dn;
+		int preshiftdirection = 0; // 0 for left shift; 1 for right shift;
+
+		uint32_t num = 0;
+		while (rootid < max_rid) {
+			++ num;
+			dn = reads[rootid].dn;
+
+			if (num == 1) {
+				fprintf(fpenstr, "%s\n", seq[rootid].seq);
+				// ++ printnum;
+
+				// fprintf(fpw, "%s\n", seq[rootid].seq);
+				{
+					dupno = 0; rcdupno = 0;
+					for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+						if (reads[rootid].dup[w].isrc) ++ rcdupno;
+						else ++ dupno;
+					}
+					// for (uint32_t w = 0; w < dupno; ++w) {
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+					// for (uint32_t w = 0; w < rcdupno; ++w) {
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+
+					if (0 == dupno && 0 == rcdupno) {
+						bit_push(isdupbin, fpisdup, 0);
+					} else {
+						bit_push(isdupbin, fpisdup, 1);
+						fpdup.write((char*)&dupno, sizeof(uint32_t));
+						fpdup.write((char*)&rcdupno, sizeof(uint32_t));
+					}
+				}
+
+				rootid = reads[rootid].getChildren();
+			} else {
+				dir = reads[rootid].isrc ? 1 : 0;
+				bit_push(dirbin, fpdir, dir);
+
+				// encode_v3(rootid, encstr);
+				strcpy(encstr, seq[rootid].seq);
+				
+				// fprintf(fpw, "%s\n", seq[rootid].seq);
+				// ++ printnum;
+
+				fprintf(fpenstr, "%s\n", encstr);
+
+				if (reads[rootid].shift != 0) {
+					// bit for shift offset
+					if (reads[rootid].shift > 0) {
+						bit_push(isleftbin, fpisleft, 1);
+					} else {
+						bit_push(isleftbin, fpisleft, 0);
+					}
+				}
+
+				{
+					dupno = 0; rcdupno = 0;
+					for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+						// fprintf(fpw, "%s\n", seq[rootid].seq);
+						if (reads[rootid].dup[w].isrc) ++ rcdupno;
+						else ++ dupno;
+					}
+					// for (uint32_t w = 0; w < dupno; ++w) {
+					// 	fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+					// for (uint32_t w = 0; w < rcdupno; ++w) {
+					// 	fprintf(fpw, "%s\n", seq[rootid].seq);
+					// 	++ dupnum;
+					// 	++ printnum;
+					// }
+
+					if (0 == dupno && 0 == rcdupno) {
+						bit_push(isdupbin, fpisdup, 0);
+					} else {
+						bit_push(isdupbin, fpisdup, 1);
+						fpdup.write((char*)&dupno, sizeof(uint32_t));
+						fpdup.write((char*)&rcdupno, sizeof(uint32_t));
+					}
+				} 
+			
+				if (num >= cnt) {
+					rootid = max_rid + 1;
+					break;
+				}
+				uint32_t child = reads[rootid].getChildren();
+
+				int back_step = 0;
+				while (child > max_rid) { // no leaf node or all children are visited
+					// back
+					rootid = reads[rootid].prid;
+					child = reads[rootid].getChildren();
+					++back_step;
+				}
+				if (back_step > 0) {
+					fprintf(fpenstr, "%d\n", back_step);
+					// ++ numberofbackstep;
+				}
+				rootid = child;
+			}
+		}
+	}
+	
+	if (dirbin.n > 0) { 
+		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
+	}
+	fpdir.close();
+
+	if (isdupbin.n > 0) { 
+		fpisdup.write((char*)&isdupbin.a, sizeof(uint8_t));
+	}
+	fpisdup.close();
+
+	if (isleftbin.n > 0) { 
+		fpisleft.write((char*)&isleftbin.a, sizeof(uint8_t));
+	}
+	fpisleft.close();
+
+	// cout << "debugcnt: " << debugcnt << endl;
+	// cout << "printnum: " << printnum << endl;
+	// cout << "dupnum: " << dupnum << endl;
+	// fclose(fpw);
+	// fpdig.close();
+	fpdup.close();
+
+	// cout << "numberofbackstep: " << numberofbackstep << endl;
+
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		if (reads[rid].crid.n > 0)
+			kv_destroy(reads[rid].crid);
 	}
 	delete[] reads;
 	fprintf(fpenstr, "-\n");
@@ -1254,14 +472,10 @@ void outputSingle() {
 	uint8bit_v singlebin;
 	singlebin.a = singlebin.n = 0;
 
-	// sprintf(name, "singleton.bin");
 	string singletonfn = folder + "singleton.bin"; 
-	// FILE *fpsg = fopen(singletonfn.c_str(), "w");
 	std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
 
-	int ncnt;
-
-	uint32_t sgcnt = 0, prerid = 0, nrid;
+	uint32_t sgcnt = 0, ncnt;
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
 		if (!visited[rid]) {
 			ncnt = 0;
@@ -1271,125 +485,43 @@ void outputSingle() {
 			if (ncnt > 0) {
 				fprintf(fpenstr, "%s\n", seq[rid].seq);
 			} else {
-				++ sgcnt;
 				for (int i = 0; i < L; ++i) {
 					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
 				}
+				++ sgcnt;
 			}
 		}
 	}
-
 	if (singlebin.n > 0) {
 		singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
 	}
 	singleOfs.close();
 
+	// fclose(fpencsg);
 	fclose(fpenstr);
 	delete[] visited;
 	
+	cout << "sgcnt: " << sgcnt << endl;
 	// cout << "trees_cnt: " << trees_cnt << "\n";
 	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
 	stopwatch.resume();
 
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	// mstcom::bsc::BSC_compress(rootstrfn.c_str(), (rootstrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(singletonfn.c_str(), (singletonfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	// mstcom::bsc::BSC_compress(readsnfn.c_str(), (readsnfn+".bsc").c_str(), 64);
+	vector<string> f1s, f2s;
+	f1s.push_back(encodestrfn);
+	f1s.push_back(dirbinfn);
+	// f1s.push_back(parentbinfn);
+	f1s.push_back(dupfn);
+	f1s.push_back(isdupfn);
+	f1s.push_back(isleftbinfn);
+	f1s.push_back(singletonfn);
 
-	// mstcom::bsc::BSC_compress(sgfn.c_str(), (sgfn+".bsc").c_str(), 64);
+	compressFiles(f1s, f2s);
 
-	// string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc singleton.bin.bsc dir.bin.bsc readsN.txt.bsc";
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc dir.bin.bsc singleton.bin.bsc";
-
-	cout << tarcmd << endl;
-
-	int status = system(tarcmd.c_str());
-	if (status < 0) {
-		fprintf(stderr, "cmd: %s\t error: %s", tarcmd, strerror(errno));
-	}
-	if(WIFEXITED(status)) {
-		    fprintf(stderr, "normal termination, exit status = %d\n", WEXITSTATUS(status)); //取得cmdstring执行结果
-	}
-	else if(WIFSIGNALED(status)) {
-		fprintf(stderr, "abnormal termination,signal number =%d\n", WTERMSIG(status)); //如果cmdstring被信号中断，取得信号值
-	} 
-	else if(WIFSTOPPED(status)) {
-		fprintf(stderr, "process stopped, signal number =%d\n", WSTOPSIG(status)); //如果cmdstring被信号暂停执行，取得信号值
-	}
-	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
-
-}
-
-void outputSingleOrder_() {
-	stopwatch.resume();
-	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
-
-	string encodestrfn = folder + "encodestr.txt";
-	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
-	
-	std::ofstream fporder;
-	string orderfn = folder + string("parent.bin");
-	fporder.open(orderfn, std::ios::binary);
-
-	int trees_cnt = 0;
-	uint8bit_v dirbin;
-	dirbin.n = dirbin.a = 0;
-
-	string dirbinfn = folder + "dir.bin";
-	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
-
-	int dir, isori;
-	FILE *fpencoded = fopen("encoded.txt", "w");
-	/// current is OK.........................................
-	// cout << "1111 \n";
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (strlen(seq[rid].seq) == 0) { // duplicate reads caused by consuses reads
-			fprintf(fpenstr, "-\n");
-			fprintf(fpencoded, "-");
-		}
-		else 
-		// if (strcmp(seq[rid].seq, "-") == 0) { // original duplicate reads
-		if (seq[rid].seq[0] == '-') { // original duplicate reads
-			fprintf(fpenstr, "\n");
-			fprintf(fpencoded, "\n");
-		} else { 
-			fprintf(fpenstr, "%s\n", seq[rid].seq);
-			fprintf(fpencoded, "%s", seq[rid].seq);
-		}
-
-		isori = checkIsOriReads(seq[rid].seq, L);
-		// cout << isori << ",";
-		if (isori == 0) {
-			fporder.write((char*)&reads[rid].prid, sizeof(uint32_t));
-			dir = 0;
-			if (reads[rid].isrc) dir = 1;
-			bit_push(dirbin, fpdir, dir);
-			fprintf(fpencoded, " %u", reads[rid].prid);
-		}
-		fprintf(fpencoded, "\n");
-	}
-	fclose(fpencoded);
-	if (dirbin.n > 0) { 
-		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
-	}
-	fpdir.close();
-
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		kv_destroy(reads[rid].crid);
-	}
-	delete[] reads;
-	fclose(fpenstr);
-
-	fporder.close();
-
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	// string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc singleton.bin.bsc dir.bin.bsc readsN.txt.bsc";
-	mstcom::lzma::lzma_compress(orderfn.c_str(), (orderfn+".lzma").c_str());
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc dir.bin.bsc parent.bin.lzma";
-
-	cout << tarcmd << endl;
+	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc dir.bin.bsc "; 
+	tarcmd += " dup.bin.bsc";
+	tarcmd += " isdup.bin.bsc";
+	tarcmd += " isleft.bin.bsc";
+	tarcmd += " singleton.bin.bsc";
 
 	int status = system(tarcmd.c_str());
 	if (status < 0) {
@@ -1406,6 +538,7 @@ void outputSingleOrder_() {
 	}
 	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
 }
+
 
 vector<string> files;
 
@@ -1435,7 +568,7 @@ string getExt(string file) {
 		exit(1);
 	}
 	size_t N0 = f0.tellg();
-	cout << "size of " << file + ".lzma" << ": " << N0 << endl;
+	// cout << "size of " << file + ".lzma" << ": " << N0 << endl;
 
 	std::ifstream f1(file + ".bsc", std::ios::ate | std::ios::binary);
 	if (f1.fail()) {
@@ -1443,7 +576,7 @@ string getExt(string file) {
 		exit(1);
 	}
 	size_t N1 = f1.tellg();
-	cout << "size of " << file + ".bsc" << ": " << N1 << endl;
+	// cout << "size of " << file + ".bsc" << ": " << N1 << endl;
 	if (N0 < N1) return "lzma";
 	return "bsc";
 }
@@ -1458,7 +591,7 @@ void compressFiles(vector<string> &f1s, vector<string> &f2s) {
 		files.push_back(f1s[i] + ".bsc");
 	}
 	for (size_t i = 0; i < files.size(); ++i) {
-		cout << files[i] << endl;
+		// cout << files[i] << endl;
 	}
 	rid_pthread = 0;
 	vector<thread> threadVec;
@@ -1471,9 +604,70 @@ void compressFiles(vector<string> &f1s, vector<string> &f2s) {
 	threadVec.clear();
 }
 
+// remove singleton reads by adding bit stream
+// void outputSingleOrder_v1_work_well_adding_bit() {
 void outputSingleOrder() {
 	stopwatch.resume();
+
 	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
+
+	bool *visited = new bool[max_rid];
+	memset(visited, false, sizeof(bool)*max_rid);
+
+	uint32_t noderid;
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		if (!visited[rid] && reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
+			queue<uint32_t> q;
+			q.push(rid);
+			uint32_t cnt = 0;
+			while (!q.empty()) {
+				noderid = q.front();		
+				q.pop();
+				++cnt;
+				visited[noderid] = true;
+				for (size_t i = 1; i < reads[noderid].dn + 1; ++i) {
+					visited[reads[noderid].dup[i].id] = true;
+				}
+				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
+					q.push(reads[noderid].crid.a[i]);
+				}
+			}
+		}
+	}
+
+	uint8bit_v isrootbin;
+	isrootbin.n = isrootbin.a = 0;
+
+	string isrootbinfn = folder + "isroot.bin";
+	std::ofstream fpisroot(isrootbinfn.c_str(), std::ios::binary);
+
+	uint32_t *newid = new uint32_t[max_rid], newidnum = 0;
+	// FILE *fprid2newid = fopen("rid2newid.comp.txt", "w");
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		int len = strlen(seq[rid].seq);
+		if (len == L) { // root node or singleton
+			int isroot = visited[rid] ? 1 : 0;
+			bit_push(isrootbin, fpisroot, isroot);
+
+			if (isroot == 1) { // root node
+				newid[rid] = newidnum ++;
+				// fprintf(fprid2newid, "%u %u\n", rid, newid[rid]);
+			}
+			// singleton is ignored
+		} else 
+		if (len > 0) {
+		// if (seq[rid].seq[0] != '\0') {
+			newid[rid] = newidnum ++;
+			// fprintf(fprid2newid, "%u %u\n", rid, newid[rid]);
+		}
+	}
+	// fclose(fprid2newid);
+	if (isrootbin.n > 0) { 
+		fpisroot.write((char*)&isrootbin.a, sizeof(uint8_t));
+	}
+	fpisroot.close();
+	// cout << "newidnum: " << newidnum << endl;
+	// exit(0);
 
 	string encodestrfn = folder + "encodestr.txt";
 	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
@@ -1486,69 +680,97 @@ void outputSingleOrder() {
 	uint8bit_v dirbin;
 	dirbin.n = dirbin.a = 0;
 
+	uint8bit_v isleftbin;
+	isleftbin.n = isleftbin.a = 0;
+	
+	uint8bit_v isdupbin;
+	isdupbin.n = isdupbin.a = 0;
+
 	string dirbinfn = folder + "dir.bin";
 	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
 
+	string isleftbinfn = folder + "isleft.bin";
+	std::ofstream fpisleft(isleftbinfn.c_str(), std::ios::binary);
+
+	// FILE *fporiid = fopen("oriid.txt", "w");
+	// FILE *fppid = fopen("pid.comp.txt", "w");
+
+	uint32_t dupno = 0, rcdupno = 0;
+
 	int dir, isori;
-	FILE *fpencoded = fopen("encoded.txt", "w");
+	// FILE *fpencoded = fopen("encoded.txt", "w");
 	/// current is OK.........................................
 	// cout << "1111 \n";
+	uint32_t outputcnt = 0;
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (strlen(seq[rid].seq) == 0) { // duplicate reads caused by consuses reads
-			fprintf(fpenstr, "-\n");
-			fprintf(fpencoded, "-");
-		}
-		else 
-		// if (strcmp(seq[rid].seq, "-") == 0) { // original duplicate reads
-		if (seq[rid].seq[0] == '-') { // original duplicate reads
-			fprintf(fpenstr, "\n");
-			fprintf(fpencoded, "\n");
-		} else { 
-			fprintf(fpenstr, "%s\n", seq[rid].seq);
-			fprintf(fpencoded, "%s", seq[rid].seq);
-		}
+		fprintf(fpenstr, "%s\n", seq[rid].seq);
+		// fprintf(fpencoded, "%s", seq[rid].seq);
 
-		isori = checkIsOriReads(seq[rid].seq, L);
-		// cout << isori << ",";
-		if (isori == 0) {
-			fporder.write((char*)&reads[rid].prid, sizeof(uint32_t));
-			dir = 0;
-			if (reads[rid].isrc) dir = 1;
+		if (strlen(seq[rid].seq) < L) {
+			if (outputcnt < 10) {
+				cout << newid[reads[rid].prid] << endl;
+			}
+			++ outputcnt;
+			fporder.write((char*)&newid[reads[rid].prid], sizeof(uint32_t));
+			// fprintf(fppid, "%u %u\n", reads[rid].prid, newid[reads[rid].prid]);
+
+			dir = reads[rid].isrc ? 1 : 0;
 			bit_push(dirbin, fpdir, dir);
-			fprintf(fpencoded, " %u", reads[rid].prid);
-		}
-		fprintf(fpencoded, "\n");
+
+			if (reads[rid].shift != 0) {
+				// bit for shift offset
+				if (reads[rid].shift > 0) {
+					bit_push(isleftbin, fpisleft, 1);
+				} else {
+					bit_push(isleftbin, fpisleft, 0);
+				}
+			}
+		} /*else {
+			fprintf(fppid, "\n");
+		}*/
+		// fprintf(fpencoded, " %u", reads[rid].prid);
+		// fprintf(fpencoded, "\n");
 	}
-	fclose(fpencoded);
+	// fclose(fppid);
+	
+	// fclose(fpencoded);
 	if (dirbin.n > 0) { 
 		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
 	}
 	fpdir.close();
 
+	if (isleftbin.n > 0) { 
+		fpisleft.write((char*)&isleftbin.a, sizeof(uint8_t));
+	}
+	fpisleft.close();
+
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		kv_destroy(reads[rid].crid);
+		if (reads[rid].crid.n > 0)
+			kv_destroy(reads[rid].crid);
 	}
 	delete[] reads;
 	fclose(fpenstr);
 
 	fporder.close();
 
+	delete[] visited;
+	delete[] newid;
+
 	vector<string> f1s, f2s;
 	f1s.push_back(encodestrfn);
 	f1s.push_back(dirbinfn);
 
-	f2s.push_back(orderfn);
+	f1s.push_back(orderfn);
+	f1s.push_back(isleftbinfn);
+	f1s.push_back(isrootbinfn);
 
 	compressFiles(f1s, f2s);
 
-	// mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	// mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	// // string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc singleton.bin.bsc dir.bin.bsc readsN.txt.bsc";
-	// mstcom::lzma::lzma_compress(orderfn.c_str(), (orderfn+".lzma").c_str());
-
 	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc dir.bin.bsc ";
 
-	tarcmd += "parent.bin." + getExt(orderfn);
+	tarcmd += " parent.bin.bsc";
+	tarcmd += " isleft.bin.bsc";
+	tarcmd += " isroot.bin.bsc";
 
 	cout << tarcmd << endl;
 
@@ -1568,485 +790,8 @@ void outputSingleOrder() {
 	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
 }
 
-void outputPE() {
-	stopwatch.resume();
-	// char *str = (char*)alloca((L + 1) * sizeof(char));
-	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
-
-	string encodestrfn = folder + "encodestr.txt";
-	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
-	// FILE *fpenstrcopy = fopen("encodestr.txt.copy", "w");
-	// FILE *fpenstrcopycopy = fopen("encodestr.txt.copy.copy", "w");
-	string rootstrfn = folder + "rootstr.txt";
-	FILE *fproot = fopen(rootstrfn.c_str(), "w");
-
-	std::ofstream fporder;
-	string orderfn = folder + string("order.bin");
-		// string orderfn = string("order.bin");  // for test
-		// fporder = fopen(orderfn.c_str(), "wb");
-	fporder.open(orderfn, std::ios::binary);
-
-	string singletonfn = folder + "singleton.bin"; 
-	std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
-
-	bool *visited = new bool[max_rid];
-	memset(visited, false, sizeof(bool)*max_rid);
-
-	int trees_cnt = 0;
-	// size_t outputnum = 0;
-
-	uint8bit_v dirbin;
-	// uint8bit_v rootbin, dirbin;
-	// rootbin.n = rootbin.a = 0;
-	dirbin.n = dirbin.a = 0;
-	// sprintf(name, "dir.bin");
-	string dirbinfn = folder + "dir.bin";
-	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
-
-	size_t ss = sizeof(size_t);
-	char *en_str = (char*)alloca((L + 1) * sizeof(char));
-
-	// int max_shift = 0;
-	size_t frid;
-
-	if (isorder) {
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-				queue<uint32_t> q;
-				q.push(rid);
-				uint32_t cnt = 0;
-				while (!q.empty()) {
-					uint32_t noderid = q.front();		
-					q.pop();
-					++cnt;
-					for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-						q.push(reads[noderid].crid.a[i]);
-					}
-				}
-
-				uint32_t rootid = rid;
-					uint32_t num = 0;
-				while (rootid < max_rid) {
-					// fprintf(stderr, "%lu\n", rootid);
-					++ num;
-					visited[rootid] = true;
-
-					// if (isorder) fwrite(&rootid, ss, 1, fporder);
-					int file = 0;
-					if (rootid >= (max_rid>>1)) file = 1; // right ends
-					bit_push(dirbin, fpdir, file);
-
-					if (isorder) {
-						if (file) {
-							frid = rootid - (max_rid >> 1);
-							fporder.write((char*)&frid, sizeof(uint32_t));
-						} else {
-							fporder.write((char*)&rootid, sizeof(uint32_t));
-						}
-					} else { //
-						if (file) { // right ends
-							// rightmap[rightmapid++] = rootid - (max_rid >> 1);
-						} else {
-							// leftmap[rootid] = leftmapid++;
-						}
-					}
-
-
-					if (num == 1) {
-						// fprintf(fproot, "%s\n", reads[rootid].str.c_str());
-						fprintf(fproot, "%s\n", seq[rootid].seq);
-
-						// for (int j = 0; j < L; ++j) {
-						// 	DNA_push(rootbin, rootOfs, seq_nt4_table[(uint8_t)seq[rootid].seq[j]]);
-						// }
-						rootid = reads[rootid].getChildren();
-					} else {
-						int dir = 0;
-						// fprintf(fpenstrcopy, "%s\n", seq[rootid].seq);
-						// if (abs(reads[rootid].shift) > max_shift) {
-						// 	max_shift = abs(reads[rootid].shift);
-						// }
-
-						fprintf(fpenstr, "%s\n", seq[rootid].seq);
-						// fprintf(fpencoded, "%s\n", seq[rootid].seq);
-						if (reads[rootid].isrc) {
-							dir = 1;
-						} 
-
-						bit_push(dirbin, fpdir, dir);
-						// dir = 0;
-						// if (rootid >= (max_rid>>1)) dir = 1;
-						// bit_push(dirbin, fpdir, dir);
-
-						if (num >= cnt) {
-							rootid = max_rid + 1;
-							break;
-						}
-						size_t child = reads[rootid].getChildren();
-						// fprintf(stderr, "child: %lu\n", child);
-						int back_step = 0;
-						while (child > max_rid) { // no leaf node or all children are visited
-							// back
-							rootid = reads[rootid].prid;
-							// fprintf(stderr, "rootid: %lu\n", rootid);
-							child = reads[rootid].getChildren();
-							++back_step;
-							// ++num;
-							// if (num > 20) exit(0);
-						}
-						// fprintf(stderr, "child: %lu\n", child);
-						if (back_step > 0) {
-							// fprintf(stderr, "--%d\n", back_step);
-							fprintf(fpenstr, "%d\n", back_step);
-						}
-						rootid = child;
-						// if (num > 20) exit(0);
-					}
-				}
-				// exit(0);
-				fprintf(fpenstr, "-\n");
-			} 
-		}
-		if (dirbin.n > 0) { 
-			fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
-		}
-		fpdir.close();
-
-		fclose(fpenstr);
-
-		// fprintf(stderr, "max_shift: %d\n", max_shift);
-		// fclose(fpenstrcopy);
-		// fclose(fpenstrcopycopy);
-
-		uint8bit_v singlebin;
-		singlebin.a = singlebin.n = 0;
-
-		// sprintf(name, "singleton.bin");
-		string singletonfn = folder + "singleton.bin"; 
-		std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
-
-		int ncnt;
-
-		fprintf(fproot, "-\n");
-		for (size_t rid = 0; rid < (max_rid>>1); ++rid) {
-			if (!visited[rid]) {
-				ncnt = 0;
-				for (int i = 0; i < L; ++i) {
-					if (seq[rid].seq[i] == 'N') ++ncnt;
-				}
-				if (ncnt > 0) {
-					fprintf(fproot, "%s\n", seq[rid].seq);
-					// if (isquality) kv_push(size_t, nrid, rid);
-					if (isorder) {
-						fporder.write((char*)&rid, sizeof(uint32_t));
-					} else {
-						// leftmap[rid] = leftmapid++;
-						// fwrite(&rid, ss, 1, fporder);
-					}
-					visited[rid] = true;
-				} 
-			}
-		}
-		fclose(fproot);
-
-		uint32_t sgcnt = 0;
-		for (size_t rid = 0; rid < (max_rid>>1); ++rid) {
-			if (!visited[rid]) {
-				++ sgcnt;
-				// leftmap[rid] = leftmapid++;
-				// fprintf(fpsingle, "%s\n", seq[rid].seq);
-				for (int i = 0; i < L; ++i) {
-					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-				}
-				if (!isorder) {
-					// leftmap[rid] = leftmapid++;
-				}
-			}
-		}
-		cout << "sgcnt: " << sgcnt << endl;
-
-		/////////////
-		string rightreadsnfn = folder + "readsN.txt.right";
-		FILE *rightfpN = fopen(rightreadsnfn.c_str(), "w");
-
-		for (size_t rid = (max_rid>>1); rid < max_rid; ++rid) {
-			if (!visited[rid]) {
-				ncnt = 0;
-				for (int i = 0; i < L; ++i) {
-					if (seq[rid].seq[i] == 'N') ++ncnt;
-				}
-				if (ncnt > 0) {
-					fprintf(rightfpN, "%s\n", seq[rid].seq);
-					// if (isquality) kv_push(size_t, nrid, rid);
-					if (isorder) {	
-						frid = rid - (max_rid >> 1);
-						fporder.write((char*)&frid, sizeof(uint32_t));
-					} else {
-						// rightmap[rightmapid++] = rid - (max_rid >> 1);
-					}
-					visited[rid] = true;
-					// fwrite(&rid, ss, 1, fporder);
-				} 
-			}
-		}
-		fclose(rightfpN);
-		fclose(fproot);
-
-		for (size_t rid = (max_rid>>1); rid < max_rid; ++rid) {
-			if (!visited[rid]) {
-				if (!isorder) {
-					// rightmap[rightmapid++] = rid - (max_rid >> 1);
-				}
-				// fprintf(fpsingle, "%s\n", seq[rid].seq);
-				for (int i = 0; i < L; ++i) {
-					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-				}
-			}
-		}
-		if (singlebin.n > 0) {
-			singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-		}
-		singleOfs.close();
-		fporder.close();
-	} else {
-		size_t *leftmap, *rightmap, leftmapid, rightmapid;
-		leftmap = new size_t[max_rid >> 1];
-		rightmap = new size_t[max_rid >> 1];
-		leftmapid = rightmapid = 0;
-		int file, dir;
-		uint32_t curid, dn;
-
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-				queue<uint32_t> q;
-				q.push(rid);
-				uint32_t cnt = 0;
-				while (!q.empty()) {
-					uint32_t noderid = q.front();		
-					q.pop();
-					++cnt;
-					for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-						q.push(reads[noderid].crid.a[i]);
-					}
-				}
-
-				uint32_t rootid = rid;
-				uint32_t num = 0;
-				while (rootid < max_rid) {
-					// fprintf(stderr, "%lu\n", rootid);
-					++ num;
-					visited[rootid] = true;
-
-					// if (isorder) fwrite(&rootid, ss, 1, fporder);
-					file = 0;
-					if (rootid >= (max_rid>>1)) file = 1; // right ends
-					bit_push(dirbin, fpdir, file);
-					if (file) { // right ends
-						rightmap[rightmapid++] = rootid - (max_rid >> 1);
-					} else {
-						leftmap[rootid] = leftmapid++;
-					}
-
-					dn = reads[rootid].dn;
-					if (dn > 0) {
-						if (reads[rootid].isrc) { // sort 1 to 0
-							sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc1);
-						} else { //small value 0 first
-							sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc0);
-						}
-					}
-
-					if (num == 1) {
-						// fprintf(fproot, "%s\n", reads[rootid].str.c_str());
-						if (dn > 0) {
-							fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								file = 0;
-								if (curid >= (max_rid>>1)) file = 1; // right ends
-								bit_push(dirbin, fpdir, file);
-								if (file) { // right ends
-									rightmap[rightmapid++] = curid - (max_rid >> 1);
-								} else {
-									leftmap[curid] = leftmapid++;
-								}
-
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-							}
-						} else {
-							fprintf(fproot, "%s\n", seq[rootid].seq);
-						}
-						rootid = reads[rootid].getChildren();
-					} else {
-						dir = 0;
-						if (reads[rootid].isrc) dir = 1; // 
-						bit_push(dirbin, fpdir, dir);
-
-						if (dn > 0) {
-							fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								file = 0;
-								if (curid >= (max_rid>>1)) file = 1; // right ends
-								bit_push(dirbin, fpdir, file);
-								if (file) { // right ends
-									rightmap[rightmapid++] = curid - (max_rid >> 1);
-								} else {
-									leftmap[curid] = leftmapid++;
-								}
-
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);								
-							}
-						} else {
-							fprintf(fpenstr, "%s\n", seq[rootid].seq);
-						}
-
-						if (num >= cnt) {
-							rootid = max_rid + 1;
-							break;
-						}
-						size_t child = reads[rootid].getChildren();
-						// fprintf(stderr, "child: %lu\n", child);
-						int back_step = 0;
-						while (child > max_rid) { // no leaf node or all children are visited
-							// back
-							rootid = reads[rootid].prid;
-							child = reads[rootid].getChildren();
-							++back_step;
-						}
-						if (back_step > 0) {
-							fprintf(fpenstr, "%d\n", back_step);
-						}
-						rootid = child;
-						// if (num > 20) exit(0);
-					}
-				}
-				// exit(0);
-				fprintf(fpenstr, "-\n");
-			} 
-		}
-
-		if (dirbin.n > 0) { 
-			fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
-		}
-		fpdir.close();
-
-		fclose(fpenstr);
-
-		uint8bit_v singlebin;
-		singlebin.a = singlebin.n = 0;
-
-		int ncnt;
-
-		fprintf(fproot, "-\n");
-		for (size_t rid = 0; rid < (max_rid>>1); ++rid) {
-			if (!visited[rid]) {
-				ncnt = 0;
-				for (int i = 0; i < L; ++i) {
-					if (seq[rid].seq[i] == 'N') ++ncnt;
-				}
-				if (ncnt > 0) {
-					fprintf(fproot, "%s\n", seq[rid].seq);
-					leftmap[rid] = leftmapid++;
-					visited[rid] = true;
-				} 
-			}
-		}
-
-		uint32_t sgcnt = 0;
-		for (size_t rid = 0; rid < (max_rid>>1); ++rid) {
-			if (!visited[rid]) {
-				++ sgcnt;
-				// leftmap[rid] = leftmapid++;
-				// fprintf(fpsingle, "%s\n", seq[rid].seq);
-				for (int i = 0; i < L; ++i) {
-					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-				}
-				leftmap[rid] = leftmapid++;
-			}
-		}
-		cout << "sgcnt: " << sgcnt << endl;
-
-		/////////////
-		fprintf(fproot, "-\n");
-		for (size_t rid = (max_rid>>1); rid < max_rid; ++rid) {
-			if (!visited[rid]) {
-				ncnt = 0;
-				for (int i = 0; i < L; ++i) {
-					if (seq[rid].seq[i] == 'N') ++ncnt;
-				}
-				if (ncnt > 0) {
-					fprintf(fproot, "%s\n", seq[rid].seq);
-					rightmap[rightmapid++] = rid - (max_rid >> 1);
-					visited[rid] = true;
-				} 
-			}
-		}
-		fclose(fproot);
-
-		for (size_t rid = (max_rid>>1); rid < max_rid; ++rid) {
-			if (!visited[rid]) {
-				rightmap[rightmapid++] = rid - (max_rid >> 1);
-				for (int i = 0; i < L; ++i) {
-					DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-				}
-			}
-		}
-		if (singlebin.n > 0) {
-			singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-		}
-		singleOfs.close();
-
-		for (size_t rid = 0; rid < (max_rid>>1); ++rid) {
-			fporder.write((char*)&leftmap[rightmap[rid]], sizeof(uint32_t));
-		}
-		delete[] leftmap;
-		delete[] rightmap;
-		fporder.close();
-	}
-
-
-	// cout << "trees_cnt: " << trees_cnt << "\n";
-	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
-	stopwatch.resume();
-
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(rootstrfn.c_str(), (rootstrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(singletonfn.c_str(), (singletonfn+".bsc").c_str(), 64);
-	mstcom::lzma::lzma_compress(orderfn.c_str(), (orderfn+".lzma").c_str());
-
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc dir.bin.bsc singleton.bin.bsc order.bin.lzma";
-
-	// cout << tarcmd << endl;
-
-	int status = system(tarcmd.c_str());
-	if (status < 0) {
-		fprintf(stderr, "cmd: %s\t error: %s", tarcmd, strerror(errno));
-	}
-	if(WIFEXITED(status)) {
-		    fprintf(stderr, "normal termination, exit status = %d\n", WEXITSTATUS(status)); //取得cmdstring执行结果
-	}
-	else if(WIFSIGNALED(status)) {
-		fprintf(stderr, "abnormal termination,signal number =%d\n", WTERMSIG(status)); //如果cmdstring被信号中断，取得信号值
-	} 
-	else if(WIFSTOPPED(status)) {
-		fprintf(stderr, "process stopped, signal number =%d\n", WSTOPSIG(status)); //如果cmdstring被信号暂停执行，取得信号值
-	}
-	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
-
-}
-
 inline void build(uint32_t *&tr, uint32_t &M, uint32_t n) {
-    for (M=1; M<=n+1; M<<=1); 
+    for (M=1; M<=n+1; M<<=1);
     tr = new uint32_t[M + n + 1];
 	memset(tr, 0, sizeof(uint32_t)*(M + n + 1));
 }
@@ -2071,44 +816,20 @@ inline uint32_t query(uint32_t *tr, uint32_t M, uint32_t s, uint32_t t) {
     return ans;
 }
 
-#if false
 void outputPEX() {
 	stopwatch.resume();
 	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
 
 	string encodestrfn = folder + "encodestr.txt";
 	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
-	string rootstrfn = folder + "rootstr.txt";
-	FILE *fproot = fopen(rootstrfn.c_str(), "w");
-
-	std::ofstream fporder;
-	string orderfn = folder + string("order.bin");
-	if (isorder) {
-		fporder.open(orderfn, std::ios::binary);
-	}
 
 	std::ofstream fpdist;
 	string distfn = folder + string("dist.bin");
 	fpdist.open(distfn, std::ios::binary);
 
-	vector<ROOTNODE_t> rootnodevec;
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[rid].prid == rid && reads[rid].crid.n > 0) { //is the root node && not a leaf node == not a singleton reads
-			queue<uint32_t> q;
-			q.push(rid);
-			uint32_t cnt = 0;
-			while (!q.empty()) {
-				uint32_t noderid = q.front();		
-				q.pop();
-				++cnt;
-				for (uint32_t i = 0; i < reads[noderid].crid.n; ++i) {
-					q.push(reads[noderid].crid.a[i]);
-				}
-			}
-			rootnodevec.push_back(ROOTNODE_t(rid, cnt));
-		}
-	}
-	sort(rootnodevec.begin(), rootnodevec.end(), cmp);
+	std::ofstream smfpdist;
+	string smdistfn = folder + string("smdist.bin");
+	smfpdist.open(smdistfn, std::ios::binary);
 
 	bool *visited = new bool[max_rid];
 	memset(visited, false, sizeof(bool)*max_rid);
@@ -2116,20 +837,61 @@ void outputPEX() {
 	int trees_cnt = 0;
 	uint8bit_v dirbin;
 	dirbin.n = dirbin.a = 0;
+
+	uint8bit_v isleftbin;
+	isleftbin.n = isleftbin.a = 0;
+	
+	uint8bit_v isdupbin;
+	isdupbin.n = isdupbin.a = 0;
+
+	uint8bit_v filebin;
+	filebin.n = filebin.a = 0;
+
 	string dirbinfn = folder + "dir.bin";
 	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
 
+	string isleftbinfn = folder + "isleft.bin";
+	std::ofstream fpisleft(isleftbinfn.c_str(), std::ios::binary);
+
+	string isdupfn = folder + "isdup.bin";
+	std::ofstream fpisdup(isdupfn.c_str(), std::ios::binary);
+
+	string dupfn = folder + "dup.bin";
+	std::ofstream fpdup(dupfn, std::ios::binary);
+
+	string filefn = folder + "file.bin";
+	std::ofstream fpfile(filefn, std::ios::binary);
+	
 	char *en_str = (char*)alloca((L + 1) * sizeof(char));
 
 	uint32_t *ids = new uint32_t[max_rid + 1];
-	uint32_t idsid = 0;
+	uint32_t idsid = 0, dn, curid;
 	uint32_t *od = new uint32_t[max_rid + 3];
+	int dir;
+
+	uint32_t dupno = 0, rcdupno = 0;
+	uint32_t dupnum = 0, printnum = 0;
 
 	// FILE *fpid = fopen("idx.txt", "w");
-	for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-			uint32_t cnt = rootnodevec[i].nodecnt;
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		if (!visited[rid] && reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
+			queue<uint32_t> q;
+			q.push(rid);
+			uint32_t cnt = 0;
+			while (!q.empty()) {
+				uint32_t noderid = q.front();		
+				q.pop();
+				++cnt;
+				visited[noderid] = true;
+				for (size_t i = 0; i < reads[noderid].dn; ++i) {
+					visited[reads[noderid].dup[i].id] = true;
+				}
+				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
+					q.push(reads[noderid].crid.a[i]);
+				}
+			}
 
-			uint32_t rootid = rootnodevec[i].rid;
+			uint32_t rootid = rid;
 			uint32_t num = 0;
 			while (rootid < max_rid) {
 				ids[idsid] = rootid;
@@ -2139,23 +901,92 @@ void outputPEX() {
 				++ num;
 				visited[rootid] = true;
 
+				dn = reads[rootid].dn;
+
 				if (num == 1) {
-					fprintf(fproot, "%s\n", seq[rootid].seq);
-					rootid = reads[rootid].getChildren();
-				} else {
-					int dir = 0;
-					if (reads[rootid].isrc) {
-						dir = 1;
-						strcpy(rcstr, seq[rootid].seq);
-						reverseComplement(rcstr);
-						encode(seq[reads[rootid].prid].seq, rcstr, reads[rootid].shift, en_str);
-						fprintf(fpenstr, "%s\n", en_str);
-					} else {
-						encode(seq[reads[rootid].prid].seq, seq[rootid].seq, reads[rootid].shift, en_str);
-						fprintf(fpenstr, "%s\n", en_str);
+					fprintf(fpenstr, "%s\n", seq[rootid].seq);
+
+					{
+						dupno = 0; rcdupno = 0;
+						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+							// fprintf(fpw, "%s\n", seq[rootid].seq);
+							if (reads[rootid].dup[w].isrc) ++ rcdupno;
+							else ++ dupno;
+						}
+
+						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+							if (!reads[rootid].dup[w].isrc) {
+								curid = reads[rootid].dup[w].id;
+								ids[idsid] = curid;
+								od[curid] = idsid ++;
+							}
+						}
+
+						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+							if (reads[rootid].dup[w].isrc) {
+								curid = reads[rootid].dup[w].id;
+								ids[idsid] = curid;
+								od[curid] = idsid ++;
+							}
+						}
+
+						if (0 == dupno && 0 == rcdupno) {
+							bit_push(isdupbin, fpisdup, 0);
+						} else {
+							bit_push(isdupbin, fpisdup, 1);
+							fpdup.write((char*)&dupno, sizeof(uint32_t));
+							fpdup.write((char*)&rcdupno, sizeof(uint32_t));
+						}
 					}
 
+					rootid = reads[rootid].getChildren();
+				} else {
+					dir = reads[rootid].isrc ? 1 : 0;
 					bit_push(dirbin, fpdir, dir);
+
+					fprintf(fpenstr, "%s\n", seq[rootid].seq);
+
+					if (reads[rootid].shift != 0) {
+						// bit for shift offset
+						if (reads[rootid].shift > 0) {
+							bit_push(isleftbin, fpisleft, 1);
+						} else {
+							bit_push(isleftbin, fpisleft, 0);
+						}
+					}
+
+					{
+						dupno = 0; rcdupno = 0;
+						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+							// fprintf(fpw, "%s\n", seq[rootid].seq);
+							if (reads[rootid].dup[w].isrc) ++ rcdupno;
+							else ++ dupno;
+						}
+
+						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+							if (!reads[rootid].dup[w].isrc) {
+								curid = reads[rootid].dup[w].id;
+								ids[idsid] = curid;
+								od[curid] = idsid ++;
+							}
+						}
+
+						for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
+							if (reads[rootid].dup[w].isrc) {
+								curid = reads[rootid].dup[w].id;
+								ids[idsid] = curid;
+								od[curid] = idsid ++;
+							}
+						}
+
+						if (0 == dupno && 0 == rcdupno) {
+							bit_push(isdupbin, fpisdup, 0);
+						} else {
+							bit_push(isdupbin, fpisdup, 1);
+							fpdup.write((char*)&dupno, sizeof(uint32_t));
+							fpdup.write((char*)&rcdupno, sizeof(uint32_t));
+						}
+					}
 
 					if (num >= cnt) {
 						rootid = max_rid + 1;
@@ -2175,7 +1006,7 @@ void outputPEX() {
 					rootid = child;
 				}
 			}
-			fprintf(fpenstr, "-\n");
+		}
 	}
 
 	if (dirbin.n > 0) { 
@@ -2183,58 +1014,30 @@ void outputPEX() {
 	}
 	fpdir.close();
 
-	// rootnodevec.clear();
-
-	fclose(fproot);
-	
-	fclose(fpenstr);
-
-	uint8bit_v singlebin;
-	singlebin.a = singlebin.n = 0;
-
-	string singletonfn = folder + "singleton.bin"; 
-	std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
-
-	string readsnfn = folder + "readsN.txt";
-	FILE *fpN = fopen(readsnfn.c_str(), "w");
-	int ncnt;
-
-	for (uint32_t rid = 0; rid < (max_rid); ++rid) {
-		if (!visited[rid]) {
-			ncnt = 0;
-			for (int i = 0; i < L; ++i) {
-				if (seq[rid].seq[i] == 'N') ++ncnt;
-			}
-			if (ncnt > 0) {
-				ids[idsid] = rid;
-				od[rid] = idsid ++;
-				// fprintf(fpid, "%lu\n", rid);
-				fprintf(fpN, "%s\n", seq[rid].seq);
-				visited[rid] = true;
-			} 
-		}
+	if (isdupbin.n > 0) { 
+		fpisdup.write((char*)&isdupbin.a, sizeof(uint8_t));
 	}
-	fclose(fpN);
+	fpisdup.close();
+	fpdup.close();
 
+	if (isleftbin.n > 0) { 
+		fpisleft.write((char*)&isleftbin.a, sizeof(uint8_t));
+	}
+	fpisleft.close();
+
+	fprintf(fpenstr, "-\n");
 	for (uint32_t rid = 0; rid < (max_rid); ++rid) {
 		if (!visited[rid]) {
 			ids[idsid] = rid;
 			od[rid] = idsid ++;
 			// fprintf(fpid, "%lu\n", rid);
-			for (int i = 0; i < L; ++i) {
-				DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-			}
+			fprintf(fpenstr, "%s\n", seq[rid].seq);
 		}
 	}
-	// fclose(fpid);
-
-	if (singlebin.n > 0) {
-		singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-	}
-	singleOfs.close();
+	fclose(fpenstr);
 
 	// calc dist
-	FILE *fp = fopen("dist.txt", "w");
+	// FILE *fp = fopen("dist.txt", "w");
 	uint32_t *tr, M;
 	build(tr, M, max_rid);
 	memset(visited, false, sizeof(bool)*max_rid);
@@ -2242,32 +1045,50 @@ void outputPEX() {
 	uint32_t half = max_rid >> 1;
 	uint32_t id = 0, num = 0, p, r, dist, orione;
 	int32_t res;
-	// 在线段数上 使用的是id+1, p+1
+
+	// cout << "before segment array\n";
+	// in the segment array, (id+1, p+1)
+	bool debug = false;
+	int file;
+	uint16_t disttemp;
+	uint32_t small = 0;
 	while (id < max_rid && num < half) {
 		if (!visited[id]) {
-			uint32_t dis = 0;
-			if (ids[id] < half) {
+			size_t dis = 0;
+			if (ids[id] < half) { // from first file
+				file = 0;
 				p = od[half + ids[id]];
 
 				r = query(tr, M, id + 1 + 1, p + 1);
+				if (debug) cout << "r: " << r << endl;
 				dist = p + 1 - (id + 1 + 1) + 1 - r;
 				res = (int32_t)dist;
-				if (isorder) {
-					fporder.write((char *)&ids[id], sizeof(uint32_t));
-				}
-			} else {
+			} else { // from second file
+				file = 1;
 				p = od[ids[id] - half];
+
 				r = query(tr, M, id + 1 + 1, p + 1);
 				dist = p + 1 - (id + 1 + 1) + 1 - r;
 				res = 0 - (int32_t)dist;
-				if (isorder) {
-					orione = ids[id] - half;
-					fporder.write((char *)&orione, sizeof(uint32_t));
-				}
 			}
-			fprintf(fp, "%d\n", res);
+			bit_push(filebin, fpfile, file);
+			// bit_push(filebin, fileOfs, file);
 
-			fpdist.write((char *)&res, sizeof(int32_t));
+			// fprintf(fp, "%d\n", res);
+
+			if (dist < 65536) {
+				++ small;
+				file = 0;
+				disttemp = dist;
+				smfpdist.write((char *)&disttemp, sizeof(uint16_t));
+			} else {
+				file = 1;
+				fpdist.write((char *)&dist, sizeof(uint32_t));
+			}
+			bit_push(filebin, fpfile, file);
+			// fpdist.write((char *)&res, sizeof(int32_t));
+			// fpdist.write((char *)&dist, sizeof(uint32_t));
+			// bit_push(rangebin, rangeOfs, file);
 
 			update(tr, M, p + 1, 1);
 			visited[p] = true;
@@ -2276,9 +1097,15 @@ void outputPEX() {
 		}
 		++ id;
 	}
+	
+	if (filebin.n > 0) { 
+		fpfile.write((char*)&filebin.a, sizeof(uint8_t));
+	}
+	fpfile.close();
 
+	// cout << "end segment array\n";
 	fpdist.close();
-	fporder.close();
+	smfpdist.close();
 
 	delete[] visited;
 	delete[] od;
@@ -2288,21 +1115,27 @@ void outputPEX() {
 	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
 	stopwatch.resume();
 
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(rootstrfn.c_str(), (rootstrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(readsnfn.c_str(), (readsnfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(distfn.c_str(), (distfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(singletonfn.c_str(), (singletonfn+".bsc").c_str(), 64);
-	if (isorder) {
-		mstcom::bsc::BSC_compress(orderfn.c_str(), (orderfn+".bsc").c_str(), 64);
-	}
+	vector<string> f1s, f2s;
+	f1s.push_back(encodestrfn);
+	f1s.push_back(dirbinfn);
 
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc dir.bin.bsc singleton.bin.bsc readsN.txt.bsc dist.bin.bsc";
+	f1s.push_back(dupfn);
+	f1s.push_back(isdupfn);
+	f1s.push_back(isleftbinfn);
+	f1s.push_back(filefn);
+	f2s.push_back(distfn);
+	f2s.push_back(smdistfn);
 
-	if (isorder) {
-		tarcmd += " order.bin.bsc";
-	}
+	compressFiles(f1s, f2s);
+
+	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc dir.bin.bsc ";
+
+	tarcmd += " dup.bin.bsc";
+	tarcmd += " isdup.bin.bsc";
+	tarcmd += " isleft.bin.bsc";
+	tarcmd += " file.bin.bsc";
+	tarcmd += " dist.bin." + getExt(distfn);
+	tarcmd += " smdist.bin." + getExt(smdistfn);
 
 	cout << tarcmd << endl;
 
@@ -2311,470 +1144,18 @@ void outputPEX() {
 
 }
 
-void outputPEX_backup() {
+// v0 work well
+// void outputPEOrder_work_well_v0() {
+void outputPEOrder() {
 	stopwatch.resume();
 	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
 
 	string encodestrfn = folder + "encodestr.txt";
 	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
-	string rootstrfn = folder + "rootstr.txt";
-	FILE *fproot = fopen(rootstrfn.c_str(), "w");
 
 	std::ofstream fporder;
 	string orderfn = folder + string("order.bin");
-	if (isorder) {
-		fporder.open(orderfn, std::ios::binary);
-	}
-
-	std::ofstream fpdist;
-	string distfn = folder + string("dist.bin");
-	fpdist.open(distfn, std::ios::binary);
-
-	bool *visited = new bool[max_rid];
-	memset(visited, false, sizeof(bool)*max_rid);
-
-	int trees_cnt = 0;
-	uint8bit_v dirbin;
-	dirbin.n = dirbin.a = 0;
-	string dirbinfn = folder + "dir.bin";
-	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
-
-	char *en_str = (char*)alloca((L + 1) * sizeof(char));
-
-	uint32_t *ids = new uint32_t[max_rid + 1];
-	uint32_t idsid = 0, dn, curid;
-	uint32_t *od = new uint32_t[max_rid + 3];
-	int dir;
-
-	// FILE *fpid = fopen("idx.txt", "w");
-	if (isorder) {
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-			// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-				queue<uint32_t> q;
-				q.push(rid);
-				uint32_t cnt = 0;
-				while (!q.empty()) {
-					uint32_t noderid = q.front();		
-					q.pop();
-					++cnt;
-					sort(reads[noderid].crid.a, reads[noderid].crid.a + reads[noderid].crid.n);
-					for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-						q.push(reads[noderid].crid.a[i]);
-					}
-				}
-
-				uint32_t rootid = rid;
-				uint32_t num = 0;
-				while (rootid < max_rid) {
-					ids[idsid] = rootid;
-					od[rootid] = idsid ++;
-
-					// fprintf(fpid, "%lu\n", rootid);
-					++ num;
-					visited[rootid] = true;
-
-					dn = reads[rootid].dn;
-
-					if (dn > 0) {
-						reads[rootid].dup[0].isrc = reads[rootid].isrc;
-					}
-
-					if (num == 1) {
-						if (dn > 0) {
-							fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								ids[idsid] = curid;
-								od[curid] = idsid ++;
-							}
-						} else {
-							fprintf(fproot, "%s\n", seq[rootid].seq);
-						}
-
-						rootid = reads[rootid].getChildren();
-					} else {
-						dir = 0;
-						if (reads[rootid].isrc) dir = 1;
-						bit_push(dirbin, fpdir, dir);
-
-						if (dn > 0) {
-							fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-							for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								ids[idsid] = curid;
-								od[curid] = idsid ++;
-							}
-						} else {
-							fprintf(fpenstr, "%s\n", seq[rootid].seq);
-						}
-
-						if (num >= cnt) {
-							rootid = max_rid + 1;
-							break;
-						}
-						size_t child = reads[rootid].getChildren();
-						int back_step = 0;
-						while (child > max_rid) { // no leaf node or all children are visited
-							// back
-							rootid = reads[rootid].prid;
-							child = reads[rootid].getChildren();
-							++back_step;
-						}
-						if (back_step > 0) {
-							fprintf(fpenstr, "%d\n", back_step);
-						}
-						rootid = child;
-					}
-				}
-				fprintf(fpenstr, "-\n");
-			}
-		}
-	} else {
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-			// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-				queue<uint32_t> q;
-				q.push(rid);
-				uint32_t cnt = 0;
-				while (!q.empty()) {
-					uint32_t noderid = q.front();		
-					q.pop();
-					++cnt;
-					for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-						q.push(reads[noderid].crid.a[i]);
-					}
-				}
-
-				uint32_t rootid = rid;
-				uint32_t num = 0;
-				while (rootid < max_rid) {
-					ids[idsid] = rootid;
-					od[rootid] = idsid ++;
-
-					// fprintf(fpid, "%lu\n", rootid);
-					++ num;
-					visited[rootid] = true;
-
-					dn = reads[rootid].dn;
-
-					if (dn > 0) {
-						// reads[rootid].dup[dn] = dup_t(rootid, reads[rootid].isrc);
-						if (reads[rootid].isrc) { // sort 1 to 0
-							sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc1);
-						} else { //small value 0 first
-							sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc0);
-						}
-					}
-
-					if (num == 1) {
-						if (dn > 0) {
-							fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								ids[idsid] = curid;
-								od[curid] = idsid ++;
-							}
-						} else {
-							fprintf(fproot, "%s\n", seq[rootid].seq);
-						}
-
-						rootid = reads[rootid].getChildren();
-					} else {
-						dir = 0;
-						if (reads[rootid].isrc) dir = 1;
-						bit_push(dirbin, fpdir, dir);
-
-						if (dn > 0) {
-							fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-							for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								ids[idsid] = curid;
-								od[curid] = idsid ++;
-							}
-						} else {
-							fprintf(fpenstr, "%s\n", seq[rootid].seq);
-						}
-
-						if (num >= cnt) {
-							rootid = max_rid + 1;
-							break;
-						}
-						size_t child = reads[rootid].getChildren();
-						int back_step = 0;
-						while (child > max_rid) { // no leaf node or all children are visited
-							// back
-							rootid = reads[rootid].prid;
-							child = reads[rootid].getChildren();
-							++back_step;
-						}
-						if (back_step > 0) {
-							fprintf(fpenstr, "%d\n", back_step);
-						}
-						rootid = child;
-					}
-				}
-				fprintf(fpenstr, "-\n");
-			}
-		}
-	}
-
-	if (dirbin.n > 0) { 
-		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
-	}
-	fpdir.close();
-	// rootnodevec.clear();
-	fclose(fpenstr);
-	// string readsnfn = folder + "readsN.txt";
-	// FILE *fpN = fopen(readsnfn.c_str(), "w");
-	int ncnt;
-	fprintf(fproot, "-\n");
-	for (uint32_t rid = 0; rid < (max_rid); ++rid) {
-		if (!visited[rid]) {
-			ncnt = 0;
-			for (int i = 0; i < L; ++i) {
-				if (seq[rid].seq[i] == 'N') ++ncnt;
-			}
-			if (ncnt > 0) {
-				ids[idsid] = rid;
-				od[rid] = idsid ++;
-				// fprintf(fpid, "%lu\n", rid);
-				fprintf(fproot, "%s\n", seq[rid].seq);
-				visited[rid] = true;
-			} 
-		}
-	}
-	fclose(fproot);
-
-	uint8bit_v singlebin;
-	singlebin.a = singlebin.n = 0;
-
-	string singletonfn = folder + "singleton.bin"; 
-	std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
-	for (uint32_t rid = 0; rid < (max_rid); ++rid) {
-		if (!visited[rid]) {
-			ids[idsid] = rid;
-			od[rid] = idsid ++;
-			// fprintf(fpid, "%lu\n", rid);
-			for (int i = 0; i < L; ++i) {
-				DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-			}
-		}
-	}
-	// fclose(fpid);
-
-	if (singlebin.n > 0) {
-		singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-	}
-	singleOfs.close();
-
-	// calc dist
-	FILE *fp = fopen("dist.txt", "w");
-	uint32_t *tr, M;
-	build(tr, M, max_rid);
-	memset(visited, false, sizeof(bool)*max_rid);
-
-	uint32_t half = max_rid >> 1;
-	uint32_t id = 0, num = 0, p, r, dist, orione;
-	int32_t res;
-
-	// uint8bit_v filebin, rangebin;
-	// filebin.a = filebin.n = 0;
-	// rangebin.a = rangebin.n = 0;
-
-	// string filefn = folder + "file.bin"; 
-	// std::ofstream fileOfs(filefn.c_str(), std::ios::binary);
-	// string rangefn = folder + "range.bin"; 
-	// std::ofstream rangeOfs(rangefn.c_str(), std::ios::binary);
-
-	// cout << "before segment array\n";
-	// in the segment array, (id+1, p+1)
-	bool debug = false;
-	int file;
-	uint16_t disttemp;
-	uint32_t small = 0;
-	if (isorder) {
-		while (id < max_rid && num < half) {
-			if (!visited[id]) {
-				size_t dis = 0;
-				if (ids[id] < half) { // from first file
-					file = 0;
-					p = od[half + ids[id]];
-
-					r = query(tr, M, id + 1 + 1, p + 1);
-					if (debug) cout << "r: " << r << endl;
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = (int32_t)dist;
-
-					fporder.write((char *)&ids[id], sizeof(uint32_t));
-				} else { // from second file
-					file = 1;
-					p = od[ids[id] - half];
-
-					r = query(tr, M, id + 1 + 1, p + 1);
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = 0 - (int32_t)dist;
-
-					orione = ids[id] - half;
-					fporder.write((char *)&orione, sizeof(uint32_t));
-				}
-
-				// bit_push(filebin, fileOfs, file);
-
-				fprintf(fp, "%d\n", res);
-
-				/*if (dist < 65536) {
-					++ small;
-					file = 0;
-					disttemp = dist;
-					fpdist.write((char *)&disttemp, sizeof(uint16_t));
-				} else {
-					file = 1;
-					fpdist.write((char *)&dist, sizeof(uint32_t));
-				}*/
-				fpdist.write((char *)&res, sizeof(int32_t));
-				// bit_push(rangebin, rangeOfs, file);
-
-				update(tr, M, p + 1, 1);
-				visited[p] = true;
-
-				++ num;
-			}
-			++ id;
-		}
-	} else {
-		while (id < max_rid && num < half) {
-			if (!visited[id]) {
-				size_t dis = 0;
-				if (ids[id] < half) { // from first file
-					file = 0;
-					p = od[half + ids[id]];
-
-					r = query(tr, M, id + 1 + 1, p + 1);
-					if (debug) cout << "r: " << r << endl;
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = (int32_t)dist;
-				} else { // from second file
-					file = 1;
-					p = od[ids[id] - half];
-
-					r = query(tr, M, id + 1 + 1, p + 1);
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = 0 - (int32_t)dist;
-				}
-
-				// bit_push(filebin, fileOfs, file);
-
-				fprintf(fp, "%d\n", res);
-
-				/*if (dist < 65536) {
-					++ small;
-					file = 0;
-					disttemp = dist;
-					fpdist.write((char *)&disttemp, sizeof(uint16_t));
-				} else {
-					file = 1;
-					fpdist.write((char *)&dist, sizeof(uint32_t));
-				}*/
-				fpdist.write((char *)&res, sizeof(int32_t));
-				// bit_push(rangebin, rangeOfs, file);
-
-				update(tr, M, p + 1, 1);
-				visited[p] = true;
-
-				++ num;
-			}
-			++ id;
-		}
-	}
-	cout << "end segment array\n";
-	// fprintf(stderr, "%u\n", small);
-	// if (filebin.n > 0) { 
-	// 	fileOfs.write((char*)&filebin.a, sizeof(uint8_t));
-	// }
-	// fileOfs.close();
-
-	// if (rangebin.n > 0) { 
-	// 	rangeOfs.write((char*)&rangebin.a, sizeof(uint8_t));
-	// }
-	// rangeOfs.close();
-
-	fpdist.close();
-	if (isorder) fporder.close();
-
-	delete[] visited;
-	delete[] od;
-	delete[] ids;
-
-	// cout << "trees_cnt: " << trees_cnt << "\n";
-	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
-	stopwatch.resume();
-
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(rootstrfn.c_str(), (rootstrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(singletonfn.c_str(), (singletonfn+".bsc").c_str(), 64);
-	mstcom::lzma::lzma_compress(distfn.c_str(), (distfn+".lzma").c_str());
-	if (isorder) {
-		mstcom::lzma::lzma_compress(orderfn.c_str(), (orderfn+".lzma").c_str());
-	}
-
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc dir.bin.bsc singleton.bin.bsc dist.bin.lzma";
-
-	if (isorder) {
-		tarcmd += " order.bin.lzma";
-	}
-
-	cout << tarcmd << endl;
-
-	system(tarcmd.c_str());
-	cout << "Time of bsc files = " << stopwatch.stop() << std::endl;
-
-}
-#endif
-
-void outputPEX() {
-	stopwatch.resume();
-	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
-
-	string encodestrfn = folder + "encodestr.txt";
-	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
-	string rootstrfn = folder + "rootstr.txt";
-	FILE *fproot = fopen(rootstrfn.c_str(), "w");
-
-	std::ofstream fporder;
-	string orderfn = folder + string("order.bin");
-	if (isorder) {
-		fporder.open(orderfn, std::ios::binary);
-	}
+	fporder.open(orderfn, std::ios::binary);
 
 	std::ofstream fpdist;
 	string distfn = folder + string("dist.bin");
@@ -2790,9 +1171,31 @@ void outputPEX() {
 	int trees_cnt = 0;
 	uint8bit_v dirbin;
 	dirbin.n = dirbin.a = 0;
+
+	uint8bit_v isleftbin;
+	isleftbin.n = isleftbin.a = 0;
+	
+	uint8bit_v isdupbin;
+	isdupbin.n = isdupbin.a = 0;
+
+	uint8bit_v filebin;
+	filebin.n = filebin.a = 0;
+
 	string dirbinfn = folder + "dir.bin";
 	std::ofstream fpdir(dirbinfn.c_str(), std::ios::binary);
 
+	string isleftbinfn = folder + "isleft.bin";
+	std::ofstream fpisleft(isleftbinfn.c_str(), std::ios::binary);
+
+	string isdupfn = folder + "isdup.bin";
+	std::ofstream fpisdup(isdupfn.c_str(), std::ios::binary);
+
+	string dupfn = folder + "dup.bin";
+	std::ofstream fpdup(dupfn, std::ios::binary);
+
+	string filefn = folder + "file.bin";
+	std::ofstream fpfile(filefn, std::ios::binary);
+	
 	char *en_str = (char*)alloca((L + 1) * sizeof(char));
 
 	uint32_t *ids = new uint32_t[max_rid + 1];
@@ -2800,263 +1203,175 @@ void outputPEX() {
 	uint32_t *od = new uint32_t[max_rid + 3];
 	int dir;
 
-	// FILE *fpid = fopen("idx.txt", "w");
-	if (isorder) {
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-			// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-				queue<uint32_t> q;
-				q.push(rid);
-				uint32_t cnt = 0;
-				while (!q.empty()) {
-					uint32_t noderid = q.front();		
-					q.pop();
-					++cnt;
-					sort(reads[noderid].crid.a, reads[noderid].crid.a + reads[noderid].crid.n);
-					for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-						q.push(reads[noderid].crid.a[i]);
-					}
+	uint32_t dupno = 0, rcdupno = 0;
+	uint32_t dupnum = 0, printnum = 0;
+	// FILE *fprootdegree = fopen("rootdegree.txt", "w");
+
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		if (!visited[rid] && reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
+			queue<uint32_t> q;
+			q.push(rid);
+			uint32_t cnt = 0;
+			while (!q.empty()) {
+				uint32_t noderid = q.front();		
+				q.pop();
+				++cnt;
+				visited[noderid] = true;
+				for (size_t i = 1; i < reads[noderid].dn + 1; ++i) {
+					visited[reads[noderid].dup[i].id] = true;
 				}
-
-				uint32_t rootid = rid;
-				uint32_t num = 0;
-				while (rootid < max_rid) {
-					ids[idsid] = rootid;
-					od[rootid] = idsid ++;
-
-					// fprintf(fpid, "%lu\n", rootid);
-					++ num;
-					visited[rootid] = true;
-
-					dn = reads[rootid].dn;
-
-					if (dn > 0) {
-						reads[rootid].dup[0].isrc = reads[rootid].isrc;
-					}
-
-					if (num == 1) {
-						if (dn > 0) {
-							if (dn == 1)
-								fprintf(fproot, "%s$\n", seq[rootid].seq);
-							else 
-								fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								ids[idsid] = curid;
-								od[curid] = idsid ++;
-							}
-						} else {
-							fprintf(fproot, "%s\n", seq[rootid].seq);
-						}
-
-						rootid = reads[rootid].getChildren();
-					} else {
-						dir = 0;
-						if (reads[rootid].isrc) dir = 1;
-						bit_push(dirbin, fpdir, dir);
-
-						if (dn > 0) {
-							if (dn == 1)
-								fprintf(fpenstr, "%s$\n", seq[rootid].seq);
-							else 
-								fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-							for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
-								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
-								ids[idsid] = curid;
-								od[curid] = idsid ++;
-							}
-						} else {
-							fprintf(fpenstr, "%s\n", seq[rootid].seq);
-						}
-
-						if (num >= cnt) {
-							rootid = max_rid + 1;
-							break;
-						}
-						size_t child = reads[rootid].getChildren();
-						int back_step = 0;
-						while (child > max_rid) { // no leaf node or all children are visited
-							// back
-							rootid = reads[rootid].prid;
-							child = reads[rootid].getChildren();
-							++back_step;
-						}
-						if (back_step > 0) {
-							fprintf(fpenstr, "%d\n", back_step);
-						}
-						rootid = child;
-					}
+				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
+					q.push(reads[noderid].crid.a[i]);
 				}
-				fprintf(fpenstr, "-\n");
 			}
-		}
-	} else {
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
-			// for (uint32_t i = 0; i < rootnodevec.size(); ++i) {
-				queue<uint32_t> q;
-				q.push(rid);
-				uint32_t cnt = 0;
-				while (!q.empty()) {
-					uint32_t noderid = q.front();		
-					q.pop();
-					++cnt;
-					for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
-						q.push(reads[noderid].crid.a[i]);
-					}
-				}
 
-				uint32_t rootid = rid;
-				uint32_t num = 0;
-				while (rootid < max_rid) {
-					ids[idsid] = rootid;
-					od[rootid] = idsid ++;
+			// fprintf(fprootdegree, "%u\n", reads[rid].crid.n);
 
-					// fprintf(fpid, "%lu\n", rootid);
-					++ num;
-					visited[rootid] = true;
+			uint32_t rootid = rid;
+			uint32_t num = 0;
+			while (rootid < max_rid) {
+				ids[idsid] = rootid;
+				od[rootid] = idsid ++;
 
-					dn = reads[rootid].dn;
+				// fprintf(fpid, "%lu\n", rootid);
+				++ num;
+				visited[rootid] = true;
 
-					if (dn > 0) {
-						// reads[rootid].dup[dn] = dup_t(rootid, reads[rootid].isrc);
-						if (reads[rootid].isrc) { // sort 1 to 0
-							sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc1);
-						} else { //small value 0 first
-							sort(reads[rootid].dup, reads[rootid].dup + dn, cmpduprc0);
+				dn = reads[rootid].dn;
+
+				if (num == 1) {
+					fprintf(fpenstr, "%s\n", seq[rootid].seq);
+
+					{
+						dupno = 0; rcdupno = 0;
+						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
+							// fprintf(fpw, "%s\n", seq[rootid].seq);
+							if (reads[rootid].dup[w].isrc) ++ rcdupno;
+							else ++ dupno;
 						}
-					}
 
-					if (num == 1) {
-						if (dn > 0) {
-							if (dn == 1)
-								fprintf(fproot, "%s$\n", seq[rootid].seq);
-							else 
-								fprintf(fproot, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							// fprintf(stdout, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-							for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
+						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
+							if (!reads[rootid].dup[w].isrc) {
 								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
 								ids[idsid] = curid;
 								od[curid] = idsid ++;
 							}
-						} else {
-							fprintf(fproot, "%s\n", seq[rootid].seq);
 						}
 
-						rootid = reads[rootid].getChildren();
-					} else {
-						dir = 0;
-						if (reads[rootid].isrc) dir = 1;
-						bit_push(dirbin, fpdir, dir);
-
-						if (dn > 0) {
-							if (dn == 1)
-								fprintf(fpenstr, "%s$\n", seq[rootid].seq);
-							else 
-								fprintf(fpenstr, "%s$%u\n", seq[rootid].seq, reads[rootid].dn);
-
-							for (uint32_t w = 0; w < reads[rootid].dn; ++w) {
-								dir = 0;
-								if (reads[rootid].dup[w].isrc) dir = 1;
-								bit_push(dirbin, fpdir, dir);
-
+						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
+							if (reads[rootid].dup[w].isrc) {
 								curid = reads[rootid].dup[w].id;
-								visited[curid] = true;
-
 								ids[idsid] = curid;
 								od[curid] = idsid ++;
 							}
-						} else {
-							fprintf(fpenstr, "%s\n", seq[rootid].seq);
 						}
 
-						if (num >= cnt) {
-							rootid = max_rid + 1;
-							break;
+						if (0 == dupno && 0 == rcdupno) {
+							bit_push(isdupbin, fpisdup, 0);
+						} else {
+							bit_push(isdupbin, fpisdup, 1);
+							fpdup.write((char*)&dupno, sizeof(uint32_t));
+							fpdup.write((char*)&rcdupno, sizeof(uint32_t));
 						}
-						size_t child = reads[rootid].getChildren();
-						int back_step = 0;
-						while (child > max_rid) { // no leaf node or all children are visited
-							// back
-							rootid = reads[rootid].prid;
-							child = reads[rootid].getChildren();
-							++back_step;
-						}
-						if (back_step > 0) {
-							fprintf(fpenstr, "%d\n", back_step);
-						}
-						rootid = child;
 					}
+
+					rootid = reads[rootid].getChildren();
+				} else {
+					dir = reads[rootid].isrc ? 1 : 0;
+					bit_push(dirbin, fpdir, dir);
+
+					fprintf(fpenstr, "%s\n", seq[rootid].seq);
+
+					if (reads[rootid].shift != 0) {
+						// bit for shift offset
+						if (reads[rootid].shift > 0) {
+							bit_push(isleftbin, fpisleft, 1);
+						} else {
+							bit_push(isleftbin, fpisleft, 0);
+						}
+					}
+
+					{
+						dupno = 0; rcdupno = 0;
+						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
+							// fprintf(fpw, "%s\n", seq[rootid].seq);
+							if (reads[rootid].dup[w].isrc) ++ rcdupno;
+							else ++ dupno;
+						}
+
+						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
+							if (!reads[rootid].dup[w].isrc) {
+								curid = reads[rootid].dup[w].id;
+								ids[idsid] = curid;
+								od[curid] = idsid ++;
+							}
+						}
+
+						for (uint32_t w = 1; w < reads[rootid].dn + 1; ++w) {
+							if (reads[rootid].dup[w].isrc) {
+								curid = reads[rootid].dup[w].id;
+								ids[idsid] = curid;
+								od[curid] = idsid ++;
+							}
+						}
+
+						if (0 == dupno && 0 == rcdupno) {
+							bit_push(isdupbin, fpisdup, 0);
+						} else {
+							bit_push(isdupbin, fpisdup, 1);
+							fpdup.write((char*)&dupno, sizeof(uint32_t));
+							fpdup.write((char*)&rcdupno, sizeof(uint32_t));
+						}
+					}
+
+					if (num >= cnt) {
+						rootid = max_rid + 1;
+						break;
+					}
+					size_t child = reads[rootid].getChildren();
+					int back_step = 0;
+					while (child > max_rid) { // no leaf node or all children are visited
+						// back
+						rootid = reads[rootid].prid;
+						child = reads[rootid].getChildren();
+						++back_step;
+					}
+					if (back_step > 0) {
+						fprintf(fpenstr, "%d\n", back_step);
+					}
+					rootid = child;
 				}
-				fprintf(fpenstr, "-\n");
 			}
 		}
 	}
+	// fclose(fprootdegree);
 
-	// rootnodevec.clear();
-	fclose(fpenstr);
-	// string readsnfn = folder + "readsN.txt";
-	// FILE *fpN = fopen(readsnfn.c_str(), "w");
-	int ncnt;
-	fprintf(fproot, "-\n");
-	for (uint32_t rid = 0; rid < (max_rid); ++rid) {
-		if (!visited[rid]) {
-			ncnt = 0;
-			for (int i = 0; i < L; ++i) {
-				if (seq[rid].seq[i] == 'N') ++ncnt;
-			}
-			if (ncnt > 0) {
-				ids[idsid] = rid;
-				od[rid] = idsid ++;
-				// fprintf(fpid, "%lu\n", rid);
-				fprintf(fproot, "%s\n", seq[rid].seq);
-				visited[rid] = true;
-			} 
-		}
+	if (dirbin.n > 0) { 
+		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
 	}
-	fclose(fproot);
+	fpdir.close();
 
-	uint8bit_v singlebin;
-	singlebin.a = singlebin.n = 0;
+	if (isdupbin.n > 0) { 
+		fpisdup.write((char*)&isdupbin.a, sizeof(uint8_t));
+	}
+	fpisdup.close();
+	fpdup.close();
 
-	string singletonfn = folder + "singleton.bin"; 
-	std::ofstream singleOfs(singletonfn.c_str(), std::ios::binary);
+	if (isleftbin.n > 0) { 
+		fpisleft.write((char*)&isleftbin.a, sizeof(uint8_t));
+	}
+	fpisleft.close();
+
+	fprintf(fpenstr, "-\n");
 	for (uint32_t rid = 0; rid < (max_rid); ++rid) {
 		if (!visited[rid]) {
 			ids[idsid] = rid;
 			od[rid] = idsid ++;
 			// fprintf(fpid, "%lu\n", rid);
-			for (int i = 0; i < L; ++i) {
-				DNA_push(singlebin, singleOfs, seq_nt4_table[(uint8_t)seq[rid].seq[i]]);
-			}
+			fprintf(fpenstr, "%s\n", seq[rid].seq);
 		}
 	}
-	// fclose(fpid);
-
-	if (singlebin.n > 0) {
-		singleOfs.write((char*)&singlebin.a, sizeof(uint8_t));
-	}
-	singleOfs.close();
+	fclose(fpenstr);
 
 	// calc dist
 	// FILE *fp = fopen("dist.txt", "w");
@@ -3068,138 +1383,74 @@ void outputPEX() {
 	uint32_t id = 0, num = 0, p, r, dist, orione;
 	int32_t res;
 
-	// uint8bit_v filebin, rangebin;
-	// filebin.a = filebin.n = 0;
-	// rangebin.a = rangebin.n = 0;
-
-	// string filefn = folder + "file.bin"; 
-	// std::ofstream fileOfs(filefn.c_str(), std::ios::binary);
-	// string rangefn = folder + "range.bin"; 
-	// std::ofstream rangeOfs(rangefn.c_str(), std::ios::binary);
-
+	// FILE *fpdisttxt = fopen("dist.txt", "w");
 	// cout << "before segment array\n";
 	// in the segment array, (id+1, p+1)
 	bool debug = false;
 	int file;
 	uint16_t disttemp;
 	uint32_t small = 0;
-	if (isorder) {
-		while (id < max_rid && num < half) {
-			if (!visited[id]) {
-				if (ids[id] < half) { // from first file
-					file = 0;
-					p = od[half + ids[id]];
+	while (id < max_rid && num < half) {
+		if (!visited[id]) {
+			if (ids[id] < half) { // from first file
+				file = 0;
+				p = od[half + ids[id]];
 
-					r = query(tr, M, id + 1 + 1, p + 1);
-					if (debug) cout << "r: " << r << endl;
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = (int32_t)dist;
+				r = query(tr, M, id + 1 + 1, p + 1);
+				if (debug) cout << "r: " << r << endl;
+				dist = p + 1 - (id + 1 + 1) + 1 - r;
+				res = (int32_t)dist;
 
-					fporder.write((char *)&ids[id], sizeof(uint32_t));
-				} else { // from second file
-					file = 1;
-					p = od[ids[id] - half];
+				fporder.write((char *)&ids[id], sizeof(uint32_t));
+			} else { // from second file
+				file = 1;
+				p = od[ids[id] - half];
 
-					r = query(tr, M, id + 1 + 1, p + 1);
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = 0 - (int32_t)dist;
+				r = query(tr, M, id + 1 + 1, p + 1);
+				dist = p + 1 - (id + 1 + 1) + 1 - r;
+				res = 0 - (int32_t)dist;
 
-					orione = ids[id] - half;
-					fporder.write((char *)&orione, sizeof(uint32_t));
-				}
-				bit_push(dirbin, fpdir, file);
-				// bit_push(filebin, fileOfs, file);
-
-				// fprintf(fp, "%d\n", res);
-
-				if (dist < 65536) {
-					++ small;
-					file = 0;
-					disttemp = dist;
-					smfpdist.write((char *)&disttemp, sizeof(uint16_t));
-				} else {
-					file = 1;
-					fpdist.write((char *)&dist, sizeof(uint32_t));
-				}
-				bit_push(dirbin, fpdir, file);
-				// fpdist.write((char *)&res, sizeof(int32_t));
-				// bit_push(rangebin, rangeOfs, file);
-
-				update(tr, M, p + 1, 1);
-				visited[p] = true;
-
-				++ num;
+				orione = ids[id] - half;
+				fporder.write((char *)&orione, sizeof(uint32_t));
 			}
-			++ id;
-		}
-	} else {
-		while (id < max_rid && num < half) {
-			if (!visited[id]) {
-				size_t dis = 0;
-				if (ids[id] < half) { // from first file
-					file = 0;
-					p = od[half + ids[id]];
+			bit_push(filebin, fpfile, file);
+			// bit_push(filebin, fileOfs, file);
 
-					r = query(tr, M, id + 1 + 1, p + 1);
-					if (debug) cout << "r: " << r << endl;
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = (int32_t)dist;
-				} else { // from second file
-					file = 1;
-					p = od[ids[id] - half];
-
-					r = query(tr, M, id + 1 + 1, p + 1);
-					dist = p + 1 - (id + 1 + 1) + 1 - r;
-					res = 0 - (int32_t)dist;
-				}
-				bit_push(dirbin, fpdir, file);
-				// bit_push(filebin, fileOfs, file);
-
-				// fprintf(fp, "%d\n", res);
-
-				if (dist < 65536) {
-					++ small;
-					file = 0;
-					disttemp = dist;
-					smfpdist.write((char *)&disttemp, sizeof(uint16_t));
-				} else {
-					file = 1;
-					fpdist.write((char *)&dist, sizeof(uint32_t));
-				}
-				bit_push(dirbin, fpdir, file);
-				// fpdist.write((char *)&res, sizeof(int32_t));
-				// fpdist.write((char *)&dist, sizeof(uint32_t));
-				// bit_push(rangebin, rangeOfs, file);
-
-				update(tr, M, p + 1, 1);
-				visited[p] = true;
-
-				++ num;
+			// fprintf(fp, "%d\n", res);
+			-- dist;
+			if (dist < 65536) {
+				++ small;
+				file = 0;
+				disttemp = dist;
+				smfpdist.write((char *)&disttemp, sizeof(uint16_t));
+			} else {
+				file = 1;
+				fpdist.write((char *)&dist, sizeof(uint32_t));
 			}
-			++ id;
-		}
-	}
+			bit_push(filebin, fpfile, file);
+			// fprintf(fpdisttxt, "%u\n", dist);
+			// fpdist.write((char *)&res, sizeof(int32_t));
+			// bit_push(rangebin, rangeOfs, file);
 
-	if (dirbin.n > 0) { 
-		fpdir.write((char*)&dirbin.a, sizeof(uint8_t));
+			update(tr, M, p + 1, 1);
+			visited[p] = true;
+
+			++ num;
+		}
+		++ id;
 	}
-	fpdir.close();
+	// fclose(fpdisttxt);
+
+	if (filebin.n > 0) { 
+		fpfile.write((char*)&filebin.a, sizeof(uint8_t));
+	}
+	fpfile.close();
 
 	cout << "end segment array\n";
-	// fprintf(stderr, "%u\n", small);
-	// if (filebin.n > 0) { 
-	// 	fileOfs.write((char*)&filebin.a, sizeof(uint8_t));
-	// }
-	// fileOfs.close();
-
-	// if (rangebin.n > 0) { 
-	// 	rangeOfs.write((char*)&rangebin.a, sizeof(uint8_t));
-	// }
-	// rangeOfs.close();
 
 	fpdist.close();
 	smfpdist.close();
-	if (isorder) fporder.close();
+	fporder.close();
 
 	delete[] visited;
 	delete[] od;
@@ -3209,21 +1460,29 @@ void outputPEX() {
 	cout << "Time of exploring trees = " << stopwatch.stop() << std::endl;
 	stopwatch.resume();
 
-	mstcom::bsc::BSC_compress(encodestrfn.c_str(), (encodestrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(rootstrfn.c_str(), (rootstrfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(dirbinfn.c_str(), (dirbinfn+".bsc").c_str(), 64);
-	mstcom::bsc::BSC_compress(singletonfn.c_str(), (singletonfn+".bsc").c_str(), 64);
-	mstcom::lzma::lzma_compress(distfn.c_str(), (distfn+".lzma").c_str());
-	mstcom::lzma::lzma_compress(smdistfn.c_str(), (smdistfn+".lzma").c_str(), 1);
-	if (isorder) {
-		mstcom::lzma::lzma_compress(orderfn.c_str(), (orderfn+".lzma").c_str());
-	}
+	vector<string> f1s, f2s;
+	f1s.push_back(encodestrfn);
+	f1s.push_back(dirbinfn);
 
-	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc rootstr.txt.bsc dir.bin.bsc singleton.bin.bsc dist.bin.lzma smdist.bin.lzma";
+	f1s.push_back(dupfn);
+	f1s.push_back(isdupfn);
+	f1s.push_back(isleftbinfn);
+	f1s.push_back(filefn);
+	f1s.push_back(orderfn);
+	f2s.push_back(distfn);
+	f2s.push_back(smdistfn);
 
-	if (isorder) {
-		tarcmd += " order.bin.lzma";
-	}
+	compressFiles(f1s, f2s);
+
+	string tarcmd = "tar -cvf " + outfile + " -C " + folder + " par.txt encodestr.txt.bsc dir.bin.bsc ";
+
+	tarcmd += " dup.bin.bsc";
+	tarcmd += " isdup.bin.bsc";
+	tarcmd += " isleft.bin.bsc";
+	tarcmd += " file.bin.bsc";
+	tarcmd += " order.bin.bsc";
+	tarcmd += " dist.bin." + getExt(distfn);
+	tarcmd += " smdist.bin." + getExt(smdistfn);
 
 	cout << tarcmd << endl;
 

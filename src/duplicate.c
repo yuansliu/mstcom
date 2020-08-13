@@ -55,6 +55,9 @@ void process128DupBucketsFun() {
 				} else {
 					for (int i1 = 0; i1 < b->n; ++i1) {
 						rid = b->a[i1].y >> 32;
+
+						// if (rid == 20387193) cout << "in maximizer\n";
+
 						max128sketch(seq[rid].seq, L, kmer, rid, &maximizer);
 						b->a[i1] = maximizer;
 					}
@@ -126,7 +129,6 @@ void findDupFun() {
 	char *strb = (char*)alloca((L + 1) * sizeof(char));
 	// char *stra = new char[L+1];
 	// char *strb = new char[L+1];
-
 	while (1) {
 		uint32_t idx = __sync_fetch_and_add(&rid_pthread, 1);
 		if (idx >= minisize) break;
@@ -140,7 +142,12 @@ void findDupFun() {
 			reverseComplement(stra);
 		}
 		// cout << "idx: " << idx << "; rid: " << rid << endl;
-
+		// bool debug = false;
+		// if (rid == 20387193 || rid == 10536560) debug = true;
+		// if (debug) {
+		// 	cout << "rid: " << rid << endl;
+		// 	cout << stra << endl;
+		// }
 		// for (uint32_t i = idx + 1; i < minisize; ++i) {
 		for (uint32_t i = idx - 1; i >= 0; --i) {
 			// cout << (mini[idx]&1) << "; " << (mini[i]&1) << endl;
@@ -148,12 +155,15 @@ void findDupFun() {
 
 			ty = mini[i];
 			trid = ty >> 32;
+
+			// if (debug) cout << trid << endl;
 			// cout << "i: " << i << "; trid: " << trid << endl;
 			tdir = (ty>>1) & 1;
 			strcpy(strb, seq[trid].seq);
 			if (tdir) {
 				reverseComplement(strb);
 			}
+			// if (debug) cout << strb << endl;
 	
 			if (strcmp(stra, strb) == 0) {
 				// cout << stra << endl;
@@ -233,6 +243,7 @@ void processDup() {
 				while (reads[trid].crid.n > 0) {
 					prid = trid;
 					trid = reads[trid].crid.a[0];
+					
 					// tr->dup[dn ++] = dup_t(trid, reads[trid].isrc ^ reads[prid].isrc);
 					tr->dup[dn ++] = dup_t(trid, false);
 
@@ -366,6 +377,7 @@ void processDup() {
 				while (reads[trid].crid.n > 0) {
 					prid = trid;
 					trid = reads[trid].crid.a[0];
+					reads[trid].prid = trid;
 					// tr->dup[dn ++] = dup_t(trid, reads[trid].isrc);
 					tr->dup[dn ++] = dup_t(trid, false);
 					kv_destroy(reads[prid].crid);
@@ -455,9 +467,9 @@ void removeDuplicate() {
 	for (int i = 0; i < (1 << bsize); ++i) {
 		kv_destroy(B[i]);
 	}
-	free(B);
-	delete[] min128vec;
-	delete[] fmm;
+	free(B); B = NULL;
+	delete[] min128vec; min128vec = NULL;
+	delete[] fmm; fmm = NULL;
 
 		//
 	// clearDuplicate();
@@ -487,17 +499,31 @@ void removeDuplicate() {
 
 	processDup();
 
-	/*FILE *fp = fopen("seq.txt", "w");
+	/*FILE *fp = fopen("dupnum.txt", "w");
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		if (!isnextrnd[rid] && reads[rid].dn > 0) {
+			fprintf(fp, "%d\n", reads[rid].dn);
+		}
+	}
+	fclose(fp);
+	exit(0);*/
+	// FILE *fp = fopen("SRR870667_2.noN.noDup.fastq", "w");
+	/*FILE *fp = fopen("ERP001775_1.noDup.fastq", "w");
 	uint32_t a = 0;
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
 		if (!isnextrnd[rid]) {
 			// if (reads[rid].dn > 0) 
 			// fprintf(fp, "%s %u\n", seq[rid].seq, reads[rid].dn);
 			// a += reads[rid].dn;
-		fprintf(fp, "%s\n", seq[rid].seq);
+			// fprintf(fp, "%s\n", seq[rid].seq);
+			fprintf(fp, "@ERP001775_1\n");
+			fprintf(fp, "%s\n", seq[rid].seq);
+			fprintf(fp, "+\n");
+			fprintf(fp, "%s\n", seq[rid].seq);
 		}
 	}
-	fclose(fp);*/
+	fclose(fp);
+	exit(0);*/
 	// cout << a << endl;
 	cout << "Time of removeDuplicate(): " << stopwatch.stop() << std::endl;
 	stopwatch.resume();

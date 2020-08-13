@@ -277,3 +277,6 @@ KSORT_INIT_GENERIC(uint32_t)
 
 #define sort_key_edge(a) ((a).dif)
 KRADIX_SORT_INIT(edge, Edge_t, sort_key_edge, 4) 
+
+#define sort_key_edge1(a) ((a).prid)
+KRADIX_SORT_INIT(mstedge, MstEdge_t, sort_key_edge1, 4) 

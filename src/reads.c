@@ -146,11 +146,17 @@ void encode(char *parent, char *child, const int16_t &_shift, char *en_str) { //
 	// en_str = (char*)calloc(L<<1, sizeof(char));
 	char *int_str = (char*)alloca(20 * sizeof(char));
 	int16_t shift = _shift;
-
+	bool debug = false;
+	if (strcmp(child, "GGTCTCAAACTGCTGACTTCAAGTGATCTGCCCGCCTTGGCCTCCCAAAGTGCTGAGATTACGGATGTGAGCCACTGTGCCCAAATTTTTTTTTTTTTTTT") == 0) {
+		// debug = true;
+	}
 	int en_str_len = 0;
 	int eq_char_num = 0;
 
 	if (shift >= 0) {
+		// case shift >= 0
+		//    AATTGCATGC parent
+		//      TTGCATGCGA
 		int i, j;
 		for (i = shift, j = 0; i < L; ++i, ++j) {
 			if (parent[i] != child[j]) {
@@ -176,6 +182,9 @@ void encode(char *parent, char *child, const int16_t &_shift, char *en_str) { //
 		}
 		en_str[en_str_len] = '\0';
 	} else {
+		// cast: shift < 0
+		//       AATTGCATGC parent
+		//    TCGAATTGCA
 		int i, j;
 		shift = 0 - shift;
 		for (j = 0; j < shift; ++j) {
@@ -203,7 +212,7 @@ void encode(char *parent, char *child, const int16_t &_shift, char *en_str) { //
 		en_str[en_str_len] = '\0';
 
 		// ???
-		if (spidx > 0) {
+		if (spidx > 0 && en_str_len - 1 != spidx) {
 			bool isdig = false;
 			for (int i = 0; i < en_str_len; ++i) {
 				if (en_str[i] >= '0' && en_str[i] <= '9') {
@@ -214,8 +223,19 @@ void encode(char *parent, char *child, const int16_t &_shift, char *en_str) { //
 			if (!isdig) {
 				en_str[en_str_len++] = '0';
 				en_str[en_str_len] = '\0';
+				// cout << "parent: " << parent << endl;
+ 			// 	cout << "child: " << child << endl;
+ 			// 	cout << en_str << endl;
 			}
 		}
+ 	}
+ 	// if (strcmp(parent, "ACTACCAGACTTCCTGTGAGTTCTTGAGCCATAGCTCCAGAACATTCAGGAAAGATCCATGTTTGCTTTCTCTTCTTTCTTTCTTTATTTTGTTTTTGAGA") == 0
+ 	// if (strcmp(child, "GGTCTCAAACTGCTGACTTCAAGTGATCTGCCCGCCTTGGCCTCCCAAAGTGCTGAGATTACGGATGTGAGCCACTGTGCCCAAATTTTTTTTTTTTTTTT") == 0) {
+ 	if (debug) {
+ 		cout << "shift: " << shift << endl;
+ 		cout << "parent: " << parent << endl;
+ 		cout << "child: " << child << endl;
+ 		cout << en_str << endl;
  	}
 	// en_str[en_str_len] = '\0';
 	// cout << en_str << endl;

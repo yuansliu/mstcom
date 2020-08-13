@@ -2,8 +2,8 @@ CC = g++
 
 # CPPFLAGS = -g -O3 -Wall -std=c++14
 # CPPFLAGS = -g -O3 -funroll-loops -Wno-used-function -std=c++14 -fopenmp -DLIBBSC_OPENMP_SUPPORT
-CPPFLAGS = -g -funroll-loops -Wno-used-function -std=c++14 -D_7ZIP_ST
-# CPPFLAGS = -O3 -Wno-used-function -std=c++14 -fopenmp -DLIBBSC_OPENMP_SUPPORT
+# CPPFLAGS = -g -funroll-loops -Wno-used-function -std=c++14 -fopenmp -D_7ZIP_ST
+CPPFLAGS = -g -O3 -Wno-used-function -std=c++14 -fopenmp -D_7ZIP_ST # -DLIBBSC_OPENMP_SUPPORT
 
 # LIBS = -lpthread -ltbb
 LIBS = -pthread -lz #-lm #-ltbb
@@ -13,7 +13,10 @@ LZMASRC = src/liblzma/lzma.cpp src/liblzma/liblzma/LzmaEnc.c src/liblzma/liblzma
 
 # SRCS = read.cpp hash.cpp compress.cpp fqreader.cpp decompress.cpp main.cpp
 # SRCS = src/main.c src/bseq.c src/sketch.c src/util.c $(BSCSRCS) #minimizer_idx.c#hash.cpp
-SRCS = src/mstcom.c src/decompress.c src/minimizers.c src/reads.c src/bucket.c src/duplicate.c src/collectnext.c src/output.c src/bseq.c src/sketch.c src/util.c $(BSCSRCS) $(LZMASRC) #minimizer_idx.c#hash.cpp
+# SRCS = src/mstcom.c src/decompress.c src/minimizers.c src/reads.c src/bucket.c src/duplicate.c src/collectnext.c src/output.c src/bseq.c src/sketch.c src/util.c $(BSCSRCS) $(LZMASRC) #minimizer_idx.c#hash.cpp
+# SRCS = src/mstcom.c src/decompress.c src/minimizers.c src/reads.c src/bucket.c src/duplicate.c src/collectnext.c src/output.c src/bseq.c src/sketch.c src/util.c src/contig.c src/indexcontig.c src/bbhashdict.c src/reconstruct.c $(BSCSRCS) $(LZMASRC) #minimizer_idx.c#hash.cpp
+# SRCS = src/mstcom.c src/decompress.c src/minimizers.c src/reads.c src/bucket.c src/duplicate.c src/collectedges.c src/output.c src/bseq.c src/sketch.c src/util.c src/kthread_idx.c src/indexedges.c src/contig.c src/indexcontig.c src/bbhashdict.c src/reconstruct.c $(BSCSRCS) $(LZMASRC) #minimizer_idx.c#hash.cpp
+SRCS = src/mstcom.c src/decompress.c src/minimizers.c src/reads.c src/bucket.c src/duplicate.c src/collectedges.c src/output.c src/bseq.c src/sketch.c src/util.c $(BSCSRCS) $(LZMASRC) #minimizer_idx.c#hash.cpp
 
 OBJS = $(SRCS: .c = .o)
 

@@ -74,7 +74,7 @@ bseq1_t *bseq_read(bseq_file_t *fp, size_t *n_, int seq_len)
 
 void bseq_read_second(bseq1_t* &seqs, bseq_file_t *fp, size_t *n_, int seq_len)
 {
-	int m, n;
+	size_t m, n;
 	kseq_t *ks = fp->ks;
 	n = *n_;
 	m = 256; 

@@ -4,10 +4,12 @@ using namespace std;
 int nthreads;
 int max_dif_thr;
 int L;
+int nk;
 size_t RN;
 uint32_t max_rid;
 bseq1_t *seq;
- 
+FILE *fppar;
+
 // input parameters
 bool isorder;
 bool ispe;
@@ -20,34 +22,37 @@ uint64_v *Bs;
 mm192_v *BL;
 // --- for minimizer
 
-int kmer, max_kmer, min_kmer;
+int kmer, max_kmer, min_kmer, gkmer;
 int *kmervec, kmervecsize;
 
+Edge_v edges;
 mm128_t *min128vec;
 mm192_t *min192vec;
 uint64_t *mini;
 uint32_t minisize;
+uint32_t *snum;
 
 mutex *bmtx;
 
 std::string folder;
+std::string hammingedgfolder;
+std::string shiftedgfolder;
 
 READS_t *reads;
 bool *isnextrnd;
-uint32_t *prid2;
-int16_t *shift2;
-bool *isrc2;
-int *min_dif2;
-bool *iscombined;
-bool *isupdate;
+
+// uint32_t maxedges = 1<<20;
+uint32_t maxedges;
+uint32_t *rootarr;
 
 char complement[256];
 
 CStopWatch stopwatch;
 
-inline void connectWithPrid2();
-
-char *cmd;
+uint32_t encode(uint32_t rid, char *en_str);
+uint32_t getRoot(uint32_t rid);
+inline void reRootNode(const size_t &_rid, const size_t &root);
+// inline void reRootNode(const size_t &_rid);
 
 inline void init() {
 	memset(complement, 125, 256);
@@ -101,15 +106,16 @@ void iscircle() {
 }
 
 inline void labelRoot() {
-	size_t num_of_nodes = 0;
+	size_t num_of_nodes = 0, num_of_root = 0;
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[rid].prid == rid) { //a root node 
+		if (!isnextrnd[rid] && reads[rid].prid == rid) { //a root node 
+			++ num_of_root;
 			uint32_t noderid = rid;
 			queue<uint32_t> q;
 			q.push(noderid);
 			while (!q.empty()) {
 				noderid = q.front();
-				reads[noderid].root = rid;
+				rootarr[noderid] = rid;
 
 				if (noderid == 1539203) {
 					// cout << "root rid: " << rid << endl;
@@ -123,6 +129,7 @@ inline void labelRoot() {
 			}
 		}
 	}
+	cout << "num_of_root: " << num_of_root << endl;
 	cout << "num_of_nodes: " << num_of_nodes << endl;
 	// cout << "Time of labelRoot() = " << stopwatch.stop() << std::endl;
 	// stopwatch.resume();
@@ -146,28 +153,24 @@ void countTreeFun() {
 
 inline void countTree() {
 	tree_num = 0;
-	rid_pthread = 0;
-	std::vector<thread> threadVec;
-	for (int i = 0; i < nthreads; ++i) {
-		threadVec.push_back(std::thread(countTreeFun));
-	}
-	std::for_each(threadVec.begin(), threadVec.end(), [](std::thread & thr) {
-		thr.join();
-	});
-	threadVec.clear();
-	fprintf(stderr, "trees number: %d\n", tree_num);
-}
-
-string fnv[65];
-
-inline void checkNextRnd() {
-	memset(isupdate, 0, sizeof(bool)*max_rid);
+	// rid_pthread = 0;
+	// std::vector<thread> threadVec;
+	// for (int i = 0; i < nthreads; ++i) {
+	// 	threadVec.push_back(std::thread(countTreeFun));
+	// }
+	// std::for_each(threadVec.begin(), threadVec.end(), [](std::thread & thr) {
+	// 	thr.join();
+	// });
+	// threadVec.clear();
+	cout << "begin countTree()..\n";
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[prid2[rid]].root == reads[rid].root) {
-			isupdate[rid] = true;
-			min_dif2[rid] = L;
+		if (!isnextrnd[rid]) {
+			if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) {
+				++ tree_num;
+			}
 		}
 	}
+	fprintf(stderr, "trees number: %d\n", tree_num);
 }
 
 uint32_t coutIsNext() {
@@ -181,132 +184,116 @@ uint32_t coutIsNext() {
 	// cout << "isnextrnd: " << cnt << endl;
 }
 
-inline void indexConstruction() {
+void mstConstruction(Edge_v &edges);
+
+void reRootTree() {
+
+}
+
+threadShiftEdges_t *threadshifteds;
+
+void indexConstruction(string kinds) {
 	CStopWatch tstopwatch;
 	tstopwatch.start();
 	stopwatch.start();
 
-	if (min_kmer <= 31) {
-		B = (mm128_v*)calloc(1 << bsize, sizeof(mm128_v));
+	if (kinds == "minimizer")
+		calcMinimizers();
+	else 
+	if (kinds == "maximizer") 
+		calcMaximizers();
+	cout << "Time of calc" + kinds + "() = " << tstopwatch.stop() << std::endl;
+	tstopwatch.resume();
+
+	sortBuckets();
+	cout << "Time of sortBuckets() = " << tstopwatch.stop() << std::endl;
+	tstopwatch.resume();
+
+	processBuckets();
+	obtainMiniIdx();
+
+	if (kmer <= 31) {
+		for (int i = 0; i < (1 << bsize); ++i) {
+			kv_destroy(B[i]);
+			kv_init(B[i]);
+		}
+	} else
+	if (kmer > 31) {
+		for (int i = 0; i < (1 << bsize); ++i) {
+			kv_destroy(BL[i]);
+			kv_init(BL[i]);
+		}
 	}
-	if (max_kmer > 31) {
-		BL = (mm192_v*)calloc(1 << bsize, sizeof(mm192_v));
+
+	cout << "Time of indexConstruction() = " << tstopwatch.stop() << std::endl;
+	tstopwatch.resume();
+}
+
+void edgesConstruction() {
+	kv_init(edges); // store some duplicate can not be detected by minimizer
+
+	// hammingedgfolder = folder + "edges";
+	mode_t mode = 0777;
+	// int nError = mkdir(hammingedgfolder.c_str(), mode);
+	// if (nError != 0) {
+	// 	fprintf(stderr, "Failed to creat the folder '%s'\n", hammingedgfolder.c_str());
+	// 	exit(EXIT_FAILURE);
+	// }
+	// hammingedgfolder += "/";
+	//
+	shiftedgfolder = folder + "shiftedges";
+	int nError = mkdir(shiftedgfolder.c_str(), mode);
+	if (nError != 0) {
+		fprintf(stderr, "Failed to creat the folder '%s'\n", shiftedgfolder.c_str());
+		exit(EXIT_FAILURE);
 	}
+	shiftedgfolder += "/";
+
+	maxedges = 1<<20;
+	// threadeds = new threadEdges_t[nthreads];
+	threadshifteds = new threadShiftEdges_t[nthreads];
+
+	for (int threadid = 0; threadid < nthreads; ++threadid) {
+		// threadeds[threadid].init(threadid);
+		threadshifteds[threadid].init(threadid);
+	}
+	CStopWatch tstopwatch;
+	tstopwatch.start();
+	// cout << "maxedges: " << maxedges << endl;
 
 	min128vec = NULL;
 	min192vec = NULL;
-	string idxfn;
+	if (min_kmer <= 31) {
+		B = (mm128_v*)calloc(1 << bsize, sizeof(mm128_v));
+		min128vec = new mm128_t[max_rid];
+		for (int i = 0; i < (1 << bsize); ++i) {
+			kv_init(B[i]);
+		}
+	} 
+	if (max_kmer > 31) {
+		BL = (mm192_v*)calloc(1 << bsize, sizeof(mm192_v));
+		min192vec = new mm192_t[max_rid];
+		for (int i = 0; i < (1 << bsize); ++i) {
+			kv_init(BL[i]);
+		}
+	}
 
 	for (int kid = 0; kid < kmervecsize; ++kid) {
 		kmer = kmervec[kid];
-
-		cout << "kmervecsize: " << kmervecsize << endl;
-		cout << "kid: " << kid << endl;
-		cout << "kmer: " << kmer << endl;
-		tstopwatch.resume();
-
-		if (kmer <= 31) {
-			if (NULL == min128vec) {
-				min128vec = new mm128_t[max_rid];
-			}
-			for (int i = 0; i < (1 << bsize); ++i) {
-				kv_init(B[i]);
-			}
-		} else {
-			if (NULL == min192vec) {
-				min192vec = new mm192_t[max_rid];
-			}
-			for (int i = 0; i < (1 << bsize); ++i) {
-				kv_init(BL[i]);
-			}
-		}
 		// cout << "kmer: " << kmer << endl;
-		calcMinimizers();
-
-		cout << "Time of calcMinimizers() = " << tstopwatch.stop() << std::endl;
 		tstopwatch.resume();
-		// cout << "after calcMinimizers()\n";
-		sortBuckets();
+		
+		indexConstruction("minimizer");
+		collectEdges("min");
 
-		cout << "Time of sortBuckets() = " << tstopwatch.stop() << std::endl;
-		tstopwatch.resume();
-		// cout << "after sortBuckets()\n";
-		processBuckets();
-
-		cout << "Time of processBuckets() = " << tstopwatch.stop() << std::endl;
-		tstopwatch.resume();
-		// cout << "after processBuckets()\n";
-
-		// if (kmer <= 31) { 
-		// 	for (int i = 0; i < (1 << bsize); ++i) {
-		// 		kv_destroy(B[i]);
-		// 	}
-		// } else {
-		// 	for (int i = 0; i < (1 << bsize); ++i) {
-		// 		kv_destroy(BL[i]);
-		// 	}	
+		// if (kid >= 10) {
+			indexConstruction("maximizer");
+			collectEdges("max");
 		// }
 
-		obtainMiniIdx();
-
-		// storeIdx();
-		idxfn = folder + to_string(kmer) + ".min";
-		idxDump(idxfn);
-
-		// idxLoad(idxfn);
-		// exit(0);
-		if (kmer <= 31) { 
-			for (int i = 0; i < (1 << bsize); ++i) {
-				kv_destroy(B[i]);
-				kv_init(B[i]);
-			}
-		} else {
-			for (int i = 0; i < (1 << bsize); ++i) {
-				kv_destroy(BL[i]);
-				kv_init(BL[i]);
-			}	
-		}
-
-		calcMaximizers();
-		sortBuckets();
-		processBuckets();
-		obtainMiniIdx();
-
-		idxfn = folder + to_string(kmer) + ".max";
-		idxDump(idxfn);
-
-		if (kmer <= 31) { 
-			for (int i = 0; i < (1 << bsize); ++i) {
-				kv_destroy(B[i]);
-			}
-		} else {
-			for (int i = 0; i < (1 << bsize); ++i) {
-				kv_destroy(BL[i]);
-			}	
-		}
-
-		if (kmer <= 31) {
-			if (NULL != min192vec) {
-				delete[] min192vec;
-				min192vec = NULL;
-			}
-		} else {
-			if (NULL != min128vec) {
-				delete[] min128vec;
-				min128vec = NULL;
-			}
-		}
-
-		cout << "kmer: " << kmer << "; isnextrnd: " << coutIsNext() << endl;
-
-		//
-		// clearDuplicate();
-
-		// cout << "Time of initialTreeConstuction kmer =" << kmer << " = " << stopwatch.stop() << std::endl;
-		// stopwatch.resume();
-		// -- kmer;
+		cout << "All time of kmer = " << kmer << ": " << tstopwatch.stop() << std::endl;
+		tstopwatch.resume();
 	}
-	tstopwatch.resume();
 
 	if (min_kmer <= 31) {
 		free(B);
@@ -314,139 +301,297 @@ inline void indexConstruction() {
 	if (max_kmer > 31) {
 		free(BL);
 	}
-
 	if (NULL != min128vec) {
 		delete[] min128vec;
-		min128vec = NULL;
 	}
 	if (NULL != min192vec) {
 		delete[] min192vec;
-		min192vec = NULL;
 	}
 
-	cout << "Time of indexConstruction(): " << stopwatch.stop() << std::endl;
-	stopwatch.resume();
+	cout << "after edgesConstruction().." << endl;
 }
 
-// #ifdef false
-inline void treeConstuction() {
+void removeChild(size_t prid, size_t rid);
 
+typedef std::pair<uint32_t, uint32_t> DuplicateEdgePair;
+std::vector<DuplicateEdgePair> duplicateEdges;
+
+void removeDuplicateEdges_() {
+	// cout << "duplicateEdges.size(): " << duplicateEdges.size() << endl;
+
+	for (size_t k = 0; k < duplicateEdges.size(); ++k) {
+		uint32_t rid = duplicateEdges[k].first;
+		uint32_t prid = duplicateEdges[k].second;
+		bool isfind = false;
+		for (uint32_t i = 0; i < reads[prid].crid.n; ++i) {
+			if (reads[prid].crid.a[i] == rid) { // find the edge
+				isfind = true;
+				break;
+			}
+		}
+
+		if (!isfind) {
+			rid = duplicateEdges[k].second;
+			prid = duplicateEdges[k].first;
+			for (uint32_t i = 0; i < reads[prid].crid.n; ++i) {
+				if (reads[prid].crid.a[i] == rid) { // find the edge
+					isfind = true;
+					break;
+				}
+			}
+		}
+
+		if (isfind) {
+			// cout << "prid: " << prid << ", rid: " << rid << endl;
+			removeChild(prid, rid);
+
+			for (uint32_t i = 0; i < reads[rid].crid.n; ++i) {
+				uint32_t crid = reads[rid].crid.a[i];
+				kv_push(uint32_t, reads[prid].crid, crid);
+				reads[crid].prid = prid;
+
+				if (reads[rid].isrc) {
+					reads[crid].isrc ^= 1;
+					reads[crid].shift = 0 - reads[crid].shift;
+				}
+			}
+
+			READS_t *tr = &reads[prid];
+
+			dup_t *tempdupvec = new dup_t[tr->dn + 2];
+			if (isorder) {
+				uint32_t dn = tr->dn;
+				for (uint32_t i = 1; i < dn + 1; ++i) {
+					tempdupvec[i] = tr->dup[i];
+				}
+				reads[prid].dn ++;
+				tempdupvec[dn + 1] = dup_t(rid, reads[rid].isrc);
+			} else {
+				uint32_t dn = tr->dn;
+				for (uint32_t i = 0; i < dn; ++i) {
+					tempdupvec[i] = tr->dup[i];
+				}
+				reads[prid].dn ++;
+				tempdupvec[dn ++] = dup_t(rid, reads[rid].isrc);
+			}
+
+			delete[] tr->dup;
+			// tr->dup = new dup_t[dn];
+			tr->dup = tempdupvec;
+
+			// isnextrnd[rid] = true;
+			reads[rid].prid = prid;
+			kv_destroy(reads[rid].crid);
+			reads[rid].crid.n = 0;
+		}
+	}
+}
+
+void removeDuplicateEdges() {
+	// cout << "duplicateEdges.size(): " << duplicateEdges.size() << endl;
+
+	for (size_t k = 0; k < duplicateEdges.size(); ++k) {
+		uint32_t rid = duplicateEdges[k].first;
+		uint32_t prid = duplicateEdges[k].second;
+		bool isfind = false;
+		for (uint32_t i = 0; i < reads[prid].crid.n; ++i) {
+			if (reads[prid].crid.a[i] == rid) { // find the edge
+				isfind = true;
+				break;
+			}
+		}
+
+		if (!isfind) {
+			rid = duplicateEdges[k].second;
+			prid = duplicateEdges[k].first;
+			for (uint32_t i = 0; i < reads[prid].crid.n; ++i) {
+				if (reads[prid].crid.a[i] == rid) { // find the edge
+					isfind = true;
+					break;
+				}
+			}
+		}
+
+		if (isfind) {
+			// cout << "prid: " << prid << ", rid: " << rid << endl;
+			removeChild(prid, rid);
+
+			for (uint32_t i = 0; i < reads[rid].crid.n; ++i) {
+				uint32_t crid = reads[rid].crid.a[i];
+				kv_push(uint32_t, reads[prid].crid, crid);
+				reads[crid].prid = prid;
+
+				if (reads[rid].isrc) {
+					reads[crid].isrc ^= 1;
+					reads[crid].shift = 0 - reads[crid].shift;
+				}
+			}
+
+			READS_t *tr = &reads[prid];
+
+			dup_t *tempdupvec = new dup_t[tr->dn + 2];
+			if (isorder) {
+				uint32_t dn = tr->dn;
+				for (uint32_t i = 1; i < dn + 1; ++i) {
+					tempdupvec[i] = tr->dup[i];
+				}
+				reads[prid].dn ++;
+				tempdupvec[dn + 1] = dup_t(rid, reads[rid].isrc);
+			} else {
+				uint32_t dn = tr->dn;
+				for (uint32_t i = 0; i < dn; ++i) {
+					tempdupvec[i] = tr->dup[i];
+				}
+				reads[prid].dn ++;
+				tempdupvec[dn ++] = dup_t(rid, reads[rid].isrc);
+			}
+
+			delete[] tr->dup;
+			// tr->dup = new dup_t[dn];
+			tr->dup = tempdupvec;
+
+			// isnextrnd[rid] = true;
+			reads[rid].prid = prid;
+			kv_destroy(reads[rid].crid);
+			kv_init(reads[rid].crid);
+			reads[rid].crid.n = 0;
+		}
+	}
+}
+
+void mstConstruction() {
 	CStopWatch tstopwatch;
 	tstopwatch.start();
-	stopwatch.start();
 
-	// prid2 = new uint32_t[max_rid];
-	shift2 = new int16_t[max_rid];
-	isrc2 = new bool[max_rid];
-	iscombined = new bool[max_rid];
-	isupdate = new bool[max_rid];
-	string idxfn;
-	int pre_trees_cnt = 0;
-	while (true) {
-		stopwatch.resume();
-	
-		checkNextRnd();
-		// cout << "before prid2[1539203]: " << prid2[1539203] << endl;	
-		// kmer = max_kmer;
-		// fprintf(stderr, "kmer: %lu\n", kmer);
-		// while (kmer >= min_kmer) {
-		for (int kid = 0; kid < kmervecsize; ++kid) {
-			kmer = kmervec[kid];
-			cout << "kmer: " << kmer << endl;
-			// stopwatch.resume();
-			
-			idxfn = folder + to_string(kmer) + ".min";
-			// cout << "before mm_bucket_load()\n";
-			if (idxLoad(idxfn) == false) {
-				cout << "the function idxLoad() fail...\n";
-				string cmd = "rm -rf " + folder;
-				system(cmd.c_str());
-				exit(EXIT_FAILURE);
-			}
+	uint32_t rid, prid, aroot, broot;
+	size_t edgesidx = 0;
 
-			// cout << kmer << " before processBuckets2()\n";
-			collectNext();
-			// cout << kmer << " after processBuckets2()\n";
-			
-			idxfn = folder + to_string(kmer) + ".max";
-			// cout << "before mm_bucket_load()\n";
-			if (idxLoad(idxfn) == false) {
-				cout << "the function idxLoad() fail...\n";
-				string cmd = "rm -rf " + folder;
-				system(cmd.c_str());
-				exit(EXIT_FAILURE);
-			}
+	char *stra = (char*)alloca((L + 1) * sizeof(char));
+	char *encstr = (char*)alloca(((L<<2) + 1) * sizeof(char));
 
-			// cout << kmer << " before processBuckets2()\n";
-			collectNext();
-			// processLargeBuckets2();
-			// cout << kmer << " after processLargeBuckets2()\n";
+	rootarr = new uint32_t[max_rid];
 
-			// cout << "Time of findPrid2 kmer = " << kmer << " = " << stopwatch.stop() << std::endl;
-			// stopwatch.resume();
-		}
-		/*FILE *fp = fopen("dis.txt", "w");
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			fprintf(fp, "%d\n", min_dif2[rid]);
-		}
-		fclose(fp);*/
-		// exit(0);
-
-		// cout << "111\n";
-		tstopwatch.resume();
-
-		connectWithPrid2();
-		// connectWithPrid2(1);
-
-		cout << "Time of connectWithPrid2() = " << tstopwatch.stop() << std::endl;
-		tstopwatch.resume();
-		// cout << "after connectWithPrid2()\n";
-		// cutCircle();
-		// cout << "after cutCircle()\n";
-		// countTree();
-		labelRoot();
-
-		cout << "Time of findPrid2 = " << stopwatch.stop() << std::endl;
-		stopwatch.resume();
-
-		countTree();
-
-		cout << "coutIsNext(): " << coutIsNext() << endl;
-		if ((max_rid > 33554432 && abs(pre_trees_cnt - tree_num) < 100000) || // 2^25
-			(max_rid <= 33554432 && max_rid > 8388608 && abs(pre_trees_cnt - tree_num) < 10000) || // 2^23
-			(max_rid <= 8388608 && abs(pre_trees_cnt - tree_num) < 1000)) break;
-
-		// if (tree_num < 20000) break;
-		// if (tree_num < 200000) break;
-		// if (tree_num < 2000000) break;
-		// if (abs(pre_trees_cnt - tree_num) < 10000) break;
-		// if (abs(pre_trees_cnt - tree_num) < 1000000) break;
-		// if (tree_num < 1000000) break;
-		// if (abs(pre_trees_cnt - tree_num) < 1000000) break;
-		// if (abs(pre_trees_cnt - tree_num) < 10000 || tree_num <= 10000000) break;
-		// if (abs(pre_trees_cnt - tree_num) < 10000) break;
-		// if (tree_num <= 1000000) break;
-		// if (abs(pre_trees_cnt - tree_num) < 100) break;
-		pre_trees_cnt = tree_num;
+	for (uint32_t i = 0; i < max_rid; ++i) {
+		rootarr[i] = i;
 	}
+	cout << "begin mstConstruction() ..." << endl;
 
-	delete[] shift2;
-	delete[] isrc2;
-	delete[] iscombined;
-	delete[] isupdate;
+	MstEdge_v mstedges;
+	kv_init(mstedges);
 
-	countTree();
+	// process dif == 0;
+	while (edgesidx < edges.n && edges.a[edgesidx].dif == 0) {
+		rid = edges.a[edgesidx].rid;
+		prid = edges.a[edgesidx].prid;
+		if (getRoot(rid) != getRoot(prid)) { //these two reads not in a tree
+			aroot = getRoot(rid);
+			broot = getRoot(prid);
+			rootarr[aroot] = broot;
 
-	return;
+			MstEdge_t teds(rid, prid, 0, edges.a[edgesidx].isrc);
+			kv_push(MstEdge_t, mstedges, teds);
+
+			duplicateEdges.push_back(make_pair(rid, prid));
+		}
+		++ edgesidx;
+	}
+	kv_destroy(edges);
+
+	for (int dif = 1; dif <= max_dif_thr; ++ dif) {
+		// if (false) // for debug
+		// for shift edges
+		for (int threadid = 0; threadid < nthreads; ++threadid) {
+			shiftEdgesFile_t *edf = &threadshifteds[threadid].a[dif - 1];
+			// edf->reopen(maxedges);
+			edf->reopen();
+
+			while (edf->get()) {
+			// bool getres;
+			// while (getres = edf->get()) {
+				// cout << "edf->fn: " << edf->fn << endl;
+				// cout << "getres: " << getres << endl;
+				// cout << "edf->n: " << edf->n << endl;
+				// cout << "edf->m: " << edf->m << endl;
+
+				for (uint32_t i = 0; i < edf->n; ++i) {
+					uint64_t v = edf->a[i];
+					rid = v >> 32;
+					prid = (uint32_t) v;
+					int16_t shiftisrc = edf->shift[i];
+
+					if (getRoot(rid) != getRoot(prid)) { //these two reads not in a tree
+						MstEdge_t teds(rid, prid, shiftisrc >> 1, shiftisrc & 1);
+						kv_push(MstEdge_t, mstedges, teds);
+						//
+						aroot = getRoot(rid);
+						broot = getRoot(prid);
+						rootarr[aroot] = broot;
+					}
+				}
+			}
+			// cout << "before clear\n";
+			edf->clear();
+		}
+	}
+	cout << endl;
+	for (int threadid = 0; threadid < nthreads; ++threadid) {
+		threadshifteds[threadid].removefd();
+		// threadeds[threadid].removefd();
+	}
+	// edgfolder = folder + "edges";
+	// string cmd = "rm -rf " + folder + "edges " + folder + "shiftedges " + folder + "shiftedgesbysubstridx";
+	// string cmd = "rm -rf " + hammingedgfolder + " " + shiftedgfolder ;
+	string cmd = "rm -rf " + shiftedgfolder ;
+	system(cmd.c_str());
+
+	cout << "Time of edges of mstConstruction() = " << tstopwatch.stop() << std::endl;
+	tstopwatch.resume();
+
+	// radix_sort_mstedge(mstedges.a, mstedges.a + mstedges.n);
+
+	bool *v = new bool[max_rid], isrc;
+	memset(v, false, sizeof(bool) * max_rid);
+	int16_t shift;
+	// FILE *fp = fopen("1.txt", "w");
+	cout << "Number of edges in MST: " << mstedges.n << endl;
+	for (size_t i = 0; i < mstedges.n; ++i) {
+		rid = mstedges.a[i].rid;
+		prid = mstedges.a[i].prid;
+		isrc = mstedges.a[i].isrc;
+		shift = mstedges.a[i].shift;
+		// fprintf(fp, "%u %u\n", prid, rid);
+
+		if (v[rid] && !v[prid]) {
+			rid = prid;
+			prid = mstedges.a[i].rid;
+			if (!isrc) {
+				shift = 0 - shift; 
+			}
+		} 
+		else 
+		if (v[rid] && v[prid]) {
+			// cout << "prid: " << prid << "; " << "rid: " << rid << endl;
+			reRootNode(rid);
+		}
+		reads[rid].prid = prid;
+		reads[rid].shift = shift;
+		reads[rid].isrc = isrc;
+		kv_push(uint32_t, reads[prid].crid, rid);
+		v[rid] = v[prid] = true;
+	}
+	delete[] v;
+	delete[] rootarr;
+	cout << "Time of mstConstruction() = " << tstopwatch.stop() << std::endl;
+	// fclose(fp);
+
+	removeDuplicateEdges();
+
+	cout << "end mstConstruction() ...\n";
 }
-// #endif
 
 bool cmp2(const ROOTNODE_t &a, const ROOTNODE_t &b) {
 	return a.nodecnt > b.nodecnt;
 }
-
-inline void reRootNode(const size_t &_rid, const size_t &root);
-inline void reRootNode(const size_t &_rid);
 
 // inline 
 void removeChild(size_t prid, size_t rid) {
@@ -461,7 +606,7 @@ void removeChild(size_t prid, size_t rid) {
 	// reads[prid].crid.resize(cridsize - 1);
 	-- reads[prid].crid.n; //resize(cridsize - 1);
 }
-
+ 
 inline void reRootNode(const uint32_t &_rid, const uint32_t &root) { // set rid as root node
 	if (reads[_rid].prid == _rid) return; // rid is root node; do nothing
 	// fprintf(stderr, "reRootNode()...\n");
@@ -510,7 +655,7 @@ bool edgecmp(Edge_t a, Edge_t b) {
 	return a.dif < b.dif;
 }
 
-inline void reRootNode(const uint32_t &_rid) { // set rid as root node
+void reRootNode(const uint32_t &_rid) { // set rid as root node
 	if (reads[_rid].prid == _rid) return; // rid is root node; do nothing
 
 	uint32_t rid = _rid;
@@ -547,79 +692,18 @@ inline void reRootNode(const uint32_t &_rid) { // set rid as root node
 	reads[_rid].shift = 0;
 }
 
-inline void connectWithPrid2() {
-	uint32_t prid, rid;
-	CStopWatch tstopwatch;
-	tstopwatch.start();
-
-	Edge_v edges;
-	kv_init(edges);
-	kv_resize(Edge_t, edges, max_rid);
-	Edge_t teds;
-
-	// FILE *fp = fopen("dif.txt", "w");
-
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		// if (reads[prid2[rid]].root != reads[rid].root && min_dif2[rid] > 0 && min_dif2[rid] < max_dif_thr) {
-		if (reads[prid2[rid]].root != reads[rid].root && !isnextrnd[rid]) {
-			if (min_dif2[rid] < max_dif_thr) {
-				teds.rid = rid, teds.dif = min_dif2[rid];
-				kv_push(Edge_t, edges, teds);
-			} else {
-				isnextrnd[rid] = true; // hard reads; do not consider never
-			}
-			// fprintf(fp, "%u: %u; %d\n", rid, prid2[rid], min_dif2[rid]);
-		} 
-		else {
-			isnextrnd[rid] = true;
-		}
+uint32_t getRoot(uint32_t rid) {
+	uint32_t root = rid, k, j;
+	while (rootarr[root] != root) {
+		root = rootarr[root];
 	}
-	// fclose(fp);
-	// exit(0);
-
-	radix_sort_edge(edges.a, edges.a + edges.n);
-
-	// for (int i = 0; i < 5; ++i) {
-	// 	cout << edges.a[i].dif << endl;
-	// }
-	// sort(edges.a, edges.a + edges.n, edgecmp);
-
-	cout << "Time of radix_sort_edge = " << tstopwatch.stop() << std::endl;
-	tstopwatch.resume();
-
-	cout << "edges.n: " << edges.n << endl;
-	// edges.n: 2283538
-	uint32_t root1, root2;
-
-	memset(iscombined, false, sizeof(bool)*max_rid);
-
-	for (size_t i = 0; i < edges.n; ++i) {
-		// cout << "i: " << i << endl;
-		rid = edges.a[i].rid;
-		prid = prid2[rid];
-	
-		if (!iscombined[reads[rid].root]) { //|| !iscombined[reads[prid].root]) {
-			reRootNode(rid); //
-			if (debug) {
-				cout << "after reRootNode()..\n";
-			}
-			// 
-			reads[rid].prid = prid;
-			reads[rid].shift = shift2[rid];
-			reads[rid].isrc = isrc2[rid];
-
-			kv_push(uint32_t, reads[prid].crid, rid);
-			//
-			iscombined[reads[rid].root] = true;
-			iscombined[reads[prid].root] = true;
-		}
-		// if (edges.a[i].dif > 0.6*L) break;
+	k = rid;
+	while (k != root)  {
+		j = rootarr[k];
+		rootarr[k] = root;
+		k = j;
 	}
-
-	kv_destroy(edges);
-
-	cout << "Time of connectWithPrid2 = " << tstopwatch.stop() << std::endl;
-	tstopwatch.resume();
+	return root;
 }
 
 int mainccc() { // test bsc compress file
@@ -638,7 +722,8 @@ int mainXX() { // test lzma compress file
 	mstcom::lzma::lzma_decompress(outfile, out);
 }
 
-inline uint32_t encode(uint32_t rid, char *en_str) {
+// inline 
+uint32_t encode_(uint32_t rid, char *en_str) {
 	if (reads[rid].prid == rid) return L;
 	uint32_t enclen = 0;
 	// char *en_str = (char*)alloca((L + 1) * sizeof(char));
@@ -656,727 +741,306 @@ inline uint32_t encode(uint32_t rid, char *en_str) {
 	return enclen;
 }
 
-const char invert_code_rule[5] = {'A', 'C', 'G', 'T', 'N'};
+uint32_t encode(uint32_t rid, char *en_str) {
+	if (reads[rid].prid == rid) return L;
+	uint32_t enclen = 0;
+	// char *en_str = (char*)alloca((L + 1) * sizeof(char));
 
-void cutSomeEdges() {
-	char *encstr = (char*)alloca(((L<<2) + 2) * sizeof(char));
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (rid != reads[rid].prid) {
-			encode(rid, encstr);
-			if (strlen(encstr) > 0.6*L) {
-				removeChild(reads[rid].prid, rid);
-				reads[rid].prid = rid;
-			}
-		}
+	if (reads[rid].isrc) {
+		char *rcstr = (char*)alloca((L + 3) * sizeof(char));
+		strncpy(rcstr, seq[rid].seq, L);
+		rcstr[L] = '\0';
+		reverseComplement(rcstr);
+		encode(seq[reads[rid].prid].seq, rcstr, reads[rid].shift, en_str);
+	} else {
+		encode(seq[reads[rid].prid].seq, seq[rid].seq, reads[rid].shift, en_str);
 	}
+	enclen = strlen(en_str);
+	return enclen;
 }
 
-void changeNodeXX() {
-	// return;
-	uint32_t root, noderid, i, trid;
-	uint32_t orienclen, aftenclen;
-	int **cnt = new int*[5], max_count;
-	for (i = 0; i < 5; ++i) {
-		cnt[i] = new int[L];
+int encode_v3(char *parent, char *child, const int16_t &_shift, char *en_str) { //str1 is the short one string
+	char *int_str = (char*)alloca(20 * sizeof(char));
+	int16_t shift = _shift;
+	int mismatchno = 0;
+	// bool debug = false;
+
+	// if (debugcnt >= mindebugcnt && debugcnt < mindebugcnt + 10) {
+	// 	debug = true;
+	// }
+	// ++debugcnt;
+
+	// if (strcmp(child, "GGTCTCAAACTGCTGACTTCAAGTGATCTGCCCGCCTTGGCCTCCCAAAGTGCTGAGATTACGGATGTGAGCCACTGTGCCCAAATTTTTTTTTTTTTTTT") == 0) {
+		// debug = true;
+	// }
+	int en_str_len = 0;
+	int eq_char_num = 0;
+
+	if (shift >= 0) {
+		// case shift >= 0
+		//    AATTGCATGC parent
+		//      TTGCATGCGA
+		if (shift > 0) {
+			// for (int i = 1; i <= shift; ++i) {
+			// 	en_str[en_str_len++] = child[L - i];
+			// }
+			for (int i = shift; i >= 1; --i) {
+				en_str[en_str_len++] = child[L - i];
+			}
+		}
+		int i, j;
+		for (i = shift, j = 0; i < L; ++i, ++j) {
+			if (parent[i] != child[j]) {
+				++ mismatchno;
+
+				sprintf(int_str, "%d", eq_char_num);
+				for (char *tk = int_str; *tk != '\0'; ++tk) {
+					en_str[en_str_len++] = *tk;
+				}
+				eq_char_num = 0;
+				en_str[en_str_len++] = child[j]; 
+			} else ++ eq_char_num;
+		}
+		en_str[en_str_len] = '\0';
+	} else {
+		// cast: shift < 0
+		//       AATTGCATGC parent
+		//    TCGAATTGCA
+		int i, j;
+		shift = 0 - shift;
+		for (j = 0; j < shift; ++j) {
+			en_str[en_str_len++] = child[j];
+		}
+		for (i = 0, j = shift; j < L; ++i, ++j) {
+			if (parent[i] != child[j]) {
+				++ mismatchno;
+
+				sprintf(int_str, "%d", eq_char_num);
+				for (char *tk = int_str; *tk != '\0'; ++tk) {
+					en_str[en_str_len++] = *tk;
+				}
+				eq_char_num = 0;
+				en_str[en_str_len++] = child[j]; 
+			} else ++ eq_char_num;	
+		}
+		en_str[en_str_len] = '\0';
+ 	}
+
+ 	// if (debug) {
+ 	// 	cout << "parent: " << parent << endl;
+ 	// 	cout << "child: " << child << endl;
+ 	// 	cout << "shift: " << + _shift << endl;
+ 	// 	cout << en_str << endl;
+ 	// }
+
+ 	return mismatchno;
+}
+
+int encode_v3(uint32_t rid, char *en_str) {
+	if (reads[rid].prid == rid) return L;
+	uint32_t enclen = 0;
+	int mismatchno;
+
+	if (reads[rid].isrc) {
+		char *rcstr = (char*)alloca((L + 3) * sizeof(char));
+		strncpy(rcstr, seq[rid].seq, L);
+		rcstr[L] = '\0';
+		reverseComplement(rcstr);
+		mismatchno = encode_v3(seq[reads[rid].prid].seq, rcstr, reads[rid].shift, en_str);
+	} else {
+		mismatchno = encode_v3(seq[reads[rid].prid].seq, seq[rid].seq, reads[rid].shift, en_str);
 	}
-	char *str, tc;
-	bool ischanged;
+	return mismatchno;
+}
 
-	char *newstr = (char*)calloc((L + 2), sizeof(char));
-	char *oristr = (char*)calloc(((L<<2) + 2), sizeof(char));
-	char *encstr = (char*)calloc(((L<<2) + 2), sizeof(char));
-	cout << "begin changeNode()\n";
+void encodeReadsFun() {
+	char *encstr = (char*)alloca((L + 1) * sizeof(char));
+	uint32_t noderid;
 
-	FILE *fpencoded = fopen("encode.txt", "w");
+	while (1) {
+		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
+		if (rid >= max_rid) break;
 
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[rid].prid == rid) { // root node 
-			// vector<uint32_t> v;
-			// v.push_back(rid);	
+		// if (reads[rid].prid == rid) {
+		if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) {
 			uint32_v v;
-			// cout << "xxx\n";
 			kv_init(v);
-			// cout << "rid: " << rid << endl;
 			kv_push(uint32_t, v, rid);
-			i = 0;
+			uint32_t i = 0;
 			while (i < v.n) {
 				noderid = v.a[i];
-				// cout << "noderid: " << noderid << endl;
 				for (uint32_t j = 0; j < reads[noderid].crid.n; ++j) {
-					// v.push_back(reads[noderid].crid.a[j]);
 					kv_push(uint32_t, v, reads[noderid].crid.a[j]);
 				}
 				++ i;
-				// cout << "2 noderid: " << noderid << endl;
 			}
-
-			// cout << "v.size(): " << v.n << endl;
-			// for (i = 0; i < v.n; ++i) {
-			// 	cout << v.a[i] << ", ";
-			// }
-			// cout << endl;
-
-			// i = v.n - 1;
-			// cout << "i: " << i << endl;
-
-			// while (i >= 0) {
 			for (i = v.n - 1; i >= 0; --i) {
-				// cout << v.n << "-i: " << i << endl;
-				root = v.a[i];
-				bool debug = false;
-				if(strcmp(seq[root].seq, "ATTACATTGGATTCCATTCTATGATTCCATTCAATTCCATTCGTTGATGATTCGATTCCATTCAATGATGATTCCATTTGAGTTCATTCGATGATTCTATT") == 0)
-						// debug = true;
-						debug = false;
-				// cout << "root: " << root << endl;
-				if (reads[root].crid.n > 1) { // at least 2 child
-					// - - do change
-					for (int k = 0; k < 5; ++k) {
-						memset(cnt[k], 0, sizeof(int) * L);
-					}
-					// cout << v.n << "-i: " << i << " - -" << endl;
-
-					for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-						trid = reads[root].crid.a[j];
-						// cout << "j:" << j << "; " << v.n << "| before -i: " << i << endl;
-						// str = seq[trid].seq;
-
-						strncpy(newstr, seq[trid].seq, L);
-						newstr[L] = '\0';
-						// cout << "j:" << j << "; " << v.n << "| before -i: " << i << endl;
-						if (reads[trid].isrc) {
-							reverseComplement(newstr);
-						}
-						str = newstr;
-
-						// cout << "j:" << j << "; " << v.n << "| before -i: " << i << endl;
-
-						// cout << "shift: " << reads[trid].shift << endl;
-						if (reads[trid].shift >= 0) {
-							for (int k = 0; k < L - reads[trid].shift; ++k) {
-								// cout << str[k] << "-" << (uint8_t)str[k] << " - [" << (int)seq_nt4_table[(uint8_t)str[k]] << ", " << reads[trid].shift + k << "]\n";
-								++ cnt[(int)seq_nt4_table[(uint8_t)str[k]]][reads[trid].shift + k];
-							}
-						} else {
-							for (int k = 0-reads[trid].shift; k < L; ++k) {
-								// cout << str[k] << "-" << (uint8_t)str[k] << " - [" << (int)seq_nt4_table[(uint8_t)str[k]] << ", " << k << "]\n";
-								++ cnt[(int)seq_nt4_table[(uint8_t)str[k]]][k];
-							}
-						}
-						// cout << v.n << "| after -i: " << i << endl;
-					}
-
-					// cout << v.n << "-i: " << i << endl;
-
-					if (debug && false) {
-						for (int k = 0; k < 5; ++k) {
-							cout << invert_code_rule[k] << ": ";
-							for (int s = 0; s < 7; ++s) {
-								cout << cnt[k][s] << " ";
-							}
-							cout << endl;
-						}
-					}
-
-					// cout << v.n << "-i: " << i << endl;
-
-					str = seq[root].seq;
-					strcpy(newstr, str);
-					ischanged = false;
-					for (int j = 0; j < L; ++j) {
-						max_count = cnt[0][j];
-						tc = 'A';
-						for (int k = 1; k < 5; ++k) {
-							if (cnt[k][j] > max_count) {
-								max_count = cnt[k][j];
-								tc = invert_code_rule[k];
-							}
-						}
-						if (tc != newstr[j]) {
-							newstr[j] = tc;
-							ischanged = true;
-						}
-					}
-					// cout << v.n << "-i: " << i << endl;
-					// cout << "zzz\n";
-					if (ischanged) {
-						// original encoding
-						orienclen = 0;
-						if (reads[root].prid != root) {
-							orienclen += encode(root, encstr);
-						} else {
-							orienclen += L;
-						}
-						// cout << "zzz0000\n";
-						if (debug) cout << "oristr: " << seq[root].seq << endl;
-						for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-							orienclen += encode(reads[root].crid.a[j], encstr);
-							if (debug) cout << seq[reads[root].crid.a[j]].seq << " | " << encstr << endl;
-						}
-						// cout << "zzz000011111\n";
-						//
-						aftenclen = 0;
-						strcpy(oristr, str);
-						strcpy(seq[root].seq, newstr);
-						if (reads[root].prid != root) {
-							aftenclen += encode(root, encstr);
-						} else {
-							aftenclen += L;
-						}
-						if (debug) {
-							cout << "-----\n";
-							cout << "newstr: " << seq[root].seq << endl;
-						}
-						for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-							aftenclen += encode(reads[root].crid.a[j], encstr);
-							if (debug) cout << seq[reads[root].crid.a[j]].seq << " | " << encstr << endl;
-						}
-
-						// cout << "zzz111\n";
-
-						if (aftenclen < orienclen) {
-							// encode children 
-							for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-								trid = reads[root].crid.a[j];
-								str = seq[trid].seq;
-								encode(trid, encstr);
-								if (str[L] == '|') {
-									strcat(encstr, str+L);
-								}
-								free(seq[trid].seq);
-								seq[trid].seq = strdup(encstr);
-								// fprintf(fpencoded, "%s\n", encstr);
-								// strcpy(seq[trid].seq, encstr);
-							}
-							//
-							free(seq[root].seq);
-							// cout << "zzz11100000000\n";
-
-							encode(oristr, newstr, 0, encstr);
-							oristr[L + 1] = '\0'; 
-							oristr[L] = '|'; 
-							strcat(oristr, encstr);
-
-							seq[root].seq = strdup(oristr);
-							fprintf(fpencoded, "%s\n", seq[root].seq);
-							// exit(0);
-						}
-
-						// cout << "zzz222\n";
-					} 
-					// cout << "zzz333\n";
-					// else do nothing
-				}
-				// cout << v.n << "-i: " << i << endl;
-				// cout << "zzz444\n";
-				if (i == 0) break;
-			}
-			// cout << "zzz555\n";
-			// v.clear();
-			// cout << "v.n: " << v.n << endl;
-			kv_destroy(v);
-			// cout << "zzz556666\n";
-		}
-	}
-
-	free(newstr);
-	free(oristr);
-	free(encstr);
-	fclose(fpencoded);
-	cout << "after changeNode()\n";
-}
-
-// no consuses
-void encodeNode() {
-	// return;
-	uint32_t root, noderid, i, trid;
-	uint32_t orienclen, aftenclen;
-	int **cnt = new int*[5], max_count;
-	for (i = 0; i < 5; ++i) {
-		cnt[i] = new int[L];
-	}
-	char *str, tc;
-	bool ischanged;
-
-	// char *newstr = (char*)calloc((L + 2), sizeof(char));
-	// char *oristr = (char*)calloc(((L<<2) + 2), sizeof(char));
-	// char *encstr = (char*)calloc(((L<<2) + 2), sizeof(char));	
-	char *newstr = (char*)alloca((L + 2) * sizeof(char));
-	char *oristr = (char*)alloca(((L<<2) + 2) * sizeof(char));
-	char *encstr = (char*)alloca(((L<<2) + 2) * sizeof(char));
-
-	cout << "begin encodeNode()\n";
-
-	FILE *fpencoded = fopen("encode.txt", "w");
-
-	// #pragma omp parallel for
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[rid].prid == rid) { // root node 
-			// vector<uint32_t> v;
-			// v.push_back(rid);	
-			uint32_v v;
-			// cout << "xxx\n";
-			kv_init(v);
-			// cout << "rid: " << rid << endl;
-			kv_push(uint32_t, v, rid);
-			i = 0;
-			while (i < v.n) {
 				noderid = v.a[i];
-				// cout << "noderid: " << noderid << endl;
-				for (uint32_t j = 0; j < reads[noderid].crid.n; ++j) {
-					// v.push_back(reads[noderid].crid.a[j]);
-					kv_push(uint32_t, v, reads[noderid].crid.a[j]);
+				int encstrlen =	encode_v3(noderid, encstr);
+				if (encstrlen < L) {
+					free(seq[noderid].seq);
+					seq[noderid].seq = strdup(encstr);
 				}
-				++ i;
-				// cout << "2 noderid: " << noderid << endl;
-			}
 
-			// cout << "v.size(): " << v.n << endl;
-			// for (i = 0; i < v.n; ++i) {
-			// 	cout << v.a[i] << ", ";
-			// }
-			// cout << endl;
-
-			// i = v.n - 1;
-			// cout << "i: " << i << endl;
-
-			// while (i >= 0) {
-			for (i = v.n - 1; i >= 0; --i) {
-				// cout << v.n << "-i: " << i << endl;
-				root = v.a[i];
-				bool debug = false;
-				// if(strcmp(seq[root].seq, "ATTACATTGGATTCCATTCTATGATTCCATTCAATTCCATTCGTTGATGATTCGATTCCATTCAATGATGATTCCATTTGAGTTCATTCGATGATTCTATT") == 0)
-						// debug = true;
-				// if (v.n == 2060)
-
-				for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-					trid = reads[root].crid.a[j];
-					str = seq[trid].seq;
-					encode(trid, encstr);
-					if (str[L] == '|') {
-						strcat(encstr, str + L);
-					}
-					free(seq[trid].seq);
-					seq[trid].seq = strdup(encstr);
-				}
-				// cout << v.n << "-i: " << i << endl;
-				if (debug) cout << "zzz444\n";
-
+				if (isorder)
 				// for duplicate reads
-				for (uint32_t w = 1; w < reads[root].dn + 1; ++w) {
-					trid = reads[root].dup[w].id;
-					reads[trid].prid = root;		
-					reads[trid].isrc = reads[root].dup[w].isrc;
+				for (uint32_t w = 1; w < reads[noderid].dn + 1; ++w) {
+					uint32_t trid = reads[noderid].dup[w].id;
+					reads[trid].prid = noderid;		
+					reads[trid].isrc = reads[noderid].dup[w].isrc;
 					seq[trid].seq[0] = '\0'; 
 				}
 
 				if (i == 0) break;
 			}
-			// cout << "zzz555\n";
-			// v.clear();
-			// cout << "v.n: " << v.n << endl;
 			kv_destroy(v);
-			// cout << "zzz556666\n";
 		}
 	}
- 	// cout << "999999\n";
-	// free(newstr);
-	// free(oristr);
-	// free(encstr);
-	fclose(fpencoded);
-	cout << "after encodeNode()\n";
 }
 
-// change some node to consuses read
-void changeNode() {
-	// return;
-	uint32_t root, noderid, i, trid;
-	uint32_t orienclen, aftenclen;
-	int **cnt = new int*[5], max_count;
-	for (i = 0; i < 5; ++i) {
-		cnt[i] = new int[L];
+void encodeReads() {
+	cout << "begin encodeReads()" << endl;
+	rid_pthread = 0;
+	std::vector<thread> threadVec;
+	for (int i = 0; i < nthreads; ++i) {
+		threadVec.push_back(std::thread(encodeReadsFun));
 	}
-	char *str, tc;
-	bool ischanged;
+	std::for_each(threadVec.begin(), threadVec.end(), [](std::thread & thr) {
+		thr.join();
+	});
+	threadVec.clear();
+	cout << "after encodeReads()" << endl;
+}
 
-	// char *newstr = (char*)calloc((L + 2), sizeof(char));
-	// char *oristr = (char*)calloc(((L<<2) + 2), sizeof(char));
-	// char *encstr = (char*)calloc(((L<<2) + 2), sizeof(char));	
-	char *newstr = (char*)alloca((L + 2) * sizeof(char));
-	char *oristr = (char*)alloca(((L<<2) + 2) * sizeof(char));
-	char *encstr = (char*)alloca(((L<<2) + 2) * sizeof(char));
-
-	cout << "begin changeNode()\n";
-
-	FILE *fpencoded = fopen("encode.txt", "w");
-
-	// #pragma omp parallel for
+void encodeReads_() {
+	cout << "begin encodeReads()" << endl;
+	char *encstr = (char*)alloca((L + 1) * sizeof(char));
+	uint32_t noderid;
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (reads[rid].prid == rid) { // root node 
-			// vector<uint32_t> v;
-			// v.push_back(rid);	
-			uint32_v v;
-			// cout << "xxx\n";
-			kv_init(v);
+		// if (reads[rid].prid == rid) {
+		if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) {
 			// cout << "rid: " << rid << endl;
+			uint32_v v;
+			kv_init(v);
 			kv_push(uint32_t, v, rid);
-			i = 0;
+			uint32_t i = 0;
 			while (i < v.n) {
 				noderid = v.a[i];
-				// cout << "noderid: " << noderid << endl;
 				for (uint32_t j = 0; j < reads[noderid].crid.n; ++j) {
-					// v.push_back(reads[noderid].crid.a[j]);
 					kv_push(uint32_t, v, reads[noderid].crid.a[j]);
 				}
 				++ i;
-				// cout << "2 noderid: " << noderid << endl;
 			}
-
-			// cout << "v.size(): " << v.n << endl;
-			// for (i = 0; i < v.n; ++i) {
-			// 	cout << v.a[i] << ", ";
-			// }
-			// cout << endl;
-
-			// i = v.n - 1;
-			// cout << "i: " << i << endl;
-
-			// while (i >= 0) {
+			// cout << "v.n: " << v.n << endl;
 			for (i = v.n - 1; i >= 0; --i) {
-				// cout << v.n << "-i: " << i << endl;
-				root = v.a[i];
-				bool debug = false;
-				// if(strcmp(seq[root].seq, "ATTACATTGGATTCCATTCTATGATTCCATTCAATTCCATTCGTTGATGATTCGATTCCATTCAATGATGATTCCATTTGAGTTCATTCGATGATTCTATT") == 0)
-						// debug = true;
-				// if (v.n == 2060)
-						debug = false;
-
-				if (debug) cout << "root: " << root << endl;
-				if (reads[root].crid.n > 1) { // at least 2 child
-					// - - do change
-					for (int k = 0; k < 5; ++k) {
-						memset(cnt[k], 0, sizeof(int) * L);
-					}
-					// cout << v.n << "-i: " << i << " - -" << endl;
-
-					for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-						trid = reads[root].crid.a[j];
-						// cout << "j:" << j << "; " << v.n << "| before -i: " << i << endl;
-						// str = seq[trid].seq;
-
-						strncpy(newstr, seq[trid].seq, L);
-						newstr[L] = '\0';
-						// cout << "j:" << j << "; " << v.n << "| before -i: " << i << endl;
-						if (reads[trid].isrc) {
-							reverseComplement(newstr);
-						}
-						str = newstr;
-
-						// cout << "j:" << j << "; " << v.n << "| before -i: " << i << endl;
-
-						// cout << "shift: " << reads[trid].shift << endl;
-						if (reads[trid].shift >= 0) {
-							for (int k = 0; k < L - reads[trid].shift; ++k) {
-								// cout << str[k] << "-" << (uint8_t)str[k] << " - [" << (int)seq_nt4_table[(uint8_t)str[k]] << ", " << reads[trid].shift + k << "]\n";
-								++ cnt[(int)seq_nt4_table[(uint8_t)str[k]]][reads[trid].shift + k];
-							}
-						} else {
-							for (int k = 0-reads[trid].shift; k < L; ++k) {
-								// cout << str[k] << "-" << (uint8_t)str[k] << " - [" << (int)seq_nt4_table[(uint8_t)str[k]] << ", " << k << "]\n";
-								++ cnt[(int)seq_nt4_table[(uint8_t)str[k]]][k];
-							}
-						}
-						// cout << v.n << "| after -i: " << i << endl;
-					}
-
-					// cout << v.n << "-i: " << i << endl;
-
-					if (debug && false) {
-						for (int k = 0; k < 5; ++k) {
-							cout << invert_code_rule[k] << ": ";
-							for (int s = 0; s < 7; ++s) {
-								cout << cnt[k][s] << " ";
-							}
-							cout << endl;
-						}
-					}
-
-					// cout << v.n << "-i: " << i << endl;
-
-					str = seq[root].seq;
-					strcpy(oristr, str);
-					strcpy(newstr, str);
-
-					ischanged = false;
-					for (int j = 0; j < L; ++j) {
-						max_count = cnt[0][j];
-						tc = 'A';
-						for (int k = 1; k < 5; ++k) {
-							if (cnt[k][j] > max_count) {
-								max_count = cnt[k][j];
-								tc = invert_code_rule[k];
-							}
-						}
-						if (tc != newstr[j]) {
-							newstr[j] = tc;
-							ischanged = true;
-						}
-					}
-					// if (strcmp(oristr, "GAATGTAGTCGAATGGAATCATCATCGAATGGAGTCGAATGGAAACATCACTGAATGGAATCAAATGAAATCACCGAATTGAATCAAATGGAATGATCATC") == 0) {
-					// 	cout << oristr << endl;
-					// 	cout << newstr << endl;
-					// }
-					// cout << v.n << "-i: " << i << endl;
-					// cout << "zzz\n";
-					if (ischanged) {
-						// original encoding
-						orienclen = 0;
-						/*if (reads[root].prid != root) {
-							orienclen += encode(root, encstr);
-						} else {
-							orienclen += L;
-						}*/
-						// cout << "zzz0000\n";
-						if (debug) cout << "oristr: " << seq[root].seq << endl;
-						for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-							trid = reads[root].crid.a[j];
-							orienclen += encode(trid, encstr);
-							// if (seq[trid].seq[L] == '|') {
-							// 	orienclen += strlen(seq[trid].seq + L + 1);
-							// }
-							if (debug) cout << seq[reads[root].crid.a[j]].seq << " | " << encstr << endl;
-						}
-						// cout << "zzz000011111\n";
-						//
-						aftenclen = 0;
-
-						strcpy(seq[root].seq, newstr);
-						/*if (reads[root].prid != root) {
-							aftenclen += encode(root, encstr);
-						} else {
-							aftenclen += L;
-						}*/
-						if (debug) {
-							cout << "-----\n";
-							cout << "newstr: " << seq[root].seq << endl;
-						}
-						for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-							aftenclen += encode(reads[root].crid.a[j], encstr);
-
-							if (debug) cout << seq[reads[root].crid.a[j]].seq << " | " << encstr << endl;
-						}
-
-						encode(oristr, newstr, 0, encstr);
-						aftenclen += strlen(encstr);
-						// #ifdef false					
-						// cout << "zzz111\n";
-						if (aftenclen + 1 < orienclen) {
-							// encode children 
-							for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-								trid = reads[root].crid.a[j];
-								str = seq[trid].seq;
-								encode(trid, encstr);
-								if (str[L] == '|') {
-									strcat(encstr, str + L);
-								}
-								free(seq[trid].seq);
-								seq[trid].seq = strdup(encstr);
-								// fprintf(fpencoded, "%s\n", encstr);
-								// strcpy(seq[trid].seq, encstr);
-							}
-							//
-							// cout << "zzz11100000000\n";
-
-							encode(oristr, newstr, 0, encstr);
-							oristr[L] = '|'; 
-							oristr[L + 1] = '\0'; 
-							strcat(oristr, encstr);
-
-							free(seq[root].seq);
-							seq[root].seq = strdup(oristr);
-							fprintf(fpencoded, "%s\n", seq[root].seq);
-
-							// exit(0);
-						} /*else {
-							strcpy(seq[root].seq, oristr);
-						}*/
-						else 
-						// #endif
-						{
-							strcpy(seq[root].seq, oristr);
-							// encode children 
-							for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-								trid = reads[root].crid.a[j];
-								str = seq[trid].seq;
-								encode(trid, encstr);
-								if (str[L] == '|') {
-									strcat(encstr, str + L);
-								}
-								free(seq[trid].seq);
-								seq[trid].seq = strdup(encstr);
-							}
-						}
-						
-						// cout << "zzz222\n";
-					} else {
-						for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-							trid = reads[root].crid.a[j];
-							str = seq[trid].seq;
-							encode(trid, encstr);
-							if (str[L] == '|') {
-								strcat(encstr, str + L);
-							}
-							free(seq[trid].seq);
-							seq[trid].seq = strdup(encstr);
-						}
-					}
-					// cout << "zzz333\n";
-					// else do something
-				} else {
-					for (uint32_t j = 0; j < reads[root].crid.n; ++j) {
-						trid = reads[root].crid.a[j];
-						str = seq[trid].seq;
-						encode(trid, encstr);
-						if (str[L] == '|') {
-							strcat(encstr, str + L);
-						}
-						free(seq[trid].seq);
-						seq[trid].seq = strdup(encstr);
-					}
+				noderid = v.a[i];
+				// cout << "noderid: " << noderid << endl;
+				int encstrlen =	encode_v3(noderid, encstr);
+				// cout << "111" << endl;
+				if (encstrlen < L) {
+					free(seq[noderid].seq);
+					seq[noderid].seq = strdup(encstr);
 				}
-				// cout << v.n << "-i: " << i << endl;
-				if (debug) cout << "zzz444\n";
+				// cout << "2222222" << endl;
 
+				if (isorder)
 				// for duplicate reads
-				if (isorder) {
-					for (uint32_t w = 1; w < reads[root].dn + 1; ++w) {
-						trid = reads[root].dup[w].id;
-						reads[trid].prid = root;		
-						reads[trid].isrc = reads[root].dup[w].isrc;
-						// seq[trid].seq[0] = '\0'; 
-						// seq[trid].seq[0] = '-';
-						strcpy(seq[trid].seq, "-");
-					}
+				for (uint32_t w = 1; w < reads[noderid].dn + 1; ++w) {
+					uint32_t trid = reads[noderid].dup[w].id;
+					reads[trid].prid = noderid;		
+					reads[trid].isrc = reads[noderid].dup[w].isrc;
+					seq[trid].seq[0] = '\0'; 
 				}
 
 				if (i == 0) break;
 			}
-			// cout << "zzz555\n";
-			// v.clear();
-			// cout << "v.n: " << v.n << endl;
 			kv_destroy(v);
-			// cout << "zzz556666\n";
 		}
 	}
- 	// cout << "999999\n";
-	// free(newstr);
-	// free(oristr);
-	// free(encstr);
-	fclose(fpencoded);
-	cout << "after changeNode()\n";
+	cout << "after encodeReads()" << endl;
 }
 
+const char invert_code_rule[5] = {'A', 'C', 'G', 'T', 'N'};
+
+void storeTrees(string fn);
+void loadTrees(string fn);
 
 int compress_main(int argc, char *argv[]) {
-	cmd = new char[1024];
+	
 	stopwatch.start();
 
+	max_dif_thr = 0;
 	init();
 	getPars(argc, argv);
 
 	L = getReadsLength(infile.c_str());
 
-	max_dif_thr = L * 0.7;
-	// max_dif_thr = L * 0.35;
-	// max_dif_thr = L * 0.5;
-	cout << "max_dif_thr: " << max_dif_thr << endl;
-	cout << "L: " << L << endl;
+	if (max_dif_thr == 0) 
+		max_dif_thr = L - 10;
+	// cout << "max_dif_thr: " << max_dif_thr << endl;
+	cout << "reads length: " << L << endl;
 
 	getReads(infile.c_str());
 
 	fprintf(stderr, "ispe: %d\nisorder: %d\n", ispe, isorder);
 
 	if (ispe) {
-		cout << "max_rid: " << max_rid << endl;
+		// cout << "max_rid: " << max_rid << endl;
 		getRightReads(infile1.c_str());
 	}
 
 	// RN 
-	if (RN > ((1UL << 32)-1)) {
-		cout << "reads numer is too large\n" <<endl;
+	if (RN > ((1UL << 32)-20)) {
+		cout << "Large number of reads; the program cannot compression them.\n" <<endl;
 		exit(1);
 	}
 	max_rid = (uint32_t)RN;
 	// outputfn = argv[3];
 
 	string parfn = folder + "par.txt";
-	FILE *fp = fopen(parfn.c_str(), "w");
-	fprintf(fp, "%d %d %d\n", L, ispe, isorder);
+	fppar = fopen(parfn.c_str(), "w");
+	fprintf(fppar, "%d %d %d\n", L, ispe, isorder);
 	// fprintf(fp, "%d\n", ispe);
 	// fprintf(fp, "%d\n", isorder);
 	if (isorder || ispe) {
-		fprintf(fp, "%lu\n", max_rid);
+		fprintf(fppar, "%lu\n", max_rid);
 	}
-	fclose(fp);
+	fclose(fppar);
 
-	cout << "max_rid: " << max_rid << endl;
+	if (isorder && !ispe) {
+	}
+	// reorderreads();
+
+	cout << "Number of reads: " << max_rid << endl;
 	cout << "Time of read file = " << stopwatch.stop() << std::endl;
 	stopwatch.resume();
-
-	// fprintf(stderr, "%s\n", seq[max_rid - 1].seq);
-
-	// kmervecsize = 1;
-	// kmervec = new int[kmervecsize];
-	// kmervec[0] = 21;
-	// kmervecsize = 7;
-	// kmervecsize = 5;
-	// int maxkmer = 62;
-	// kmervecsize = 47;
-
-	/*kmervecsize = 22;
-	kmervec = new int[kmervecsize];
-
-	int maxkmer= 55;
-	
-	kmervec[0] = 55;
-	kmervec[1] = 54;
-	kmervec[2] = 53;
-	kmervec[3] = 52;
-	kmervec[4] = 45;
-	kmervec[5] = 44;
-	kmervec[6] = 43;
-	kmervec[7] = 42;
-
-	kmervec[8] = 29;
-	for (int i = 9; i < kmervecsize; ++i) {
-		kmervec[i] = kmervec[i-1] - 1;
-	}*/
-
-	/*int largekmernum = 0;
-	// int maxkmer = 29;
-	// // int maxkmer = 54;
-	// kmervecsize = 15;
-
-	int maxkmer = 62;
-	// int maxkmer = 54;
-	kmervecsize = 42;
-
-	if (L < 75) {
-		maxkmer = 62;
-		// kmervecsize = 20;
-	}
-	kmervec = new int[kmervecsize];
-
-	kmervec[0] = maxkmer;
-	for (int i = 1; i < kmervecsize; ++i) {
-		kmervec[i] = kmervec[i-1] - 1;
-	}*/
+	// nthreads = 1;
+// #define _LOADTREE
+#ifndef _LOADTREE
 	// ----------
 	int largekmernum = 0;
+	// int maxkmer = 33;
+	// kmervecsize = 20;
+	// int maxkmer = 31;
+
 	int maxkmer = 29;
-	kmervecsize = 15;
+	kmervecsize = 20;
+	// kmervecsize = 15;
+
+	// int maxkmer = 49;
+	// kmervecsize = 40;
+
+	// kmervecsize = 10;
+	// kmervecsize = 20;
+	// kmervecsize = 3;
 
 	if (L < 75) {
-		maxkmer = 24;
+		// maxkmer = 24;
+		// maxkmer = 27;
+		// kmervecsize = 20;
+	}
+	if (L > 120) {
+		// maxkmer = 50;
 		// kmervecsize = 20;
 	}
 	kmervec = new int[kmervecsize];
@@ -1401,53 +1065,113 @@ int compress_main(int argc, char *argv[]) {
 	// char str[1<<10];
 	// cout << "pls input a string: ";
 	// scanf("%s", str);
-	reads = new READS_t[max_rid];
-	prid2 = new uint32_t[max_rid];
-	min_dif2 = new int[max_rid];
+	reads = new READS_t[max_rid + 1];
 	
 	isnextrnd = new bool[max_rid];
 	memset(isnextrnd, 0, sizeof(bool) * max_rid);
 
 	mini = new uint64_t[max_rid];
+	snum = new uint32_t[max_rid];
 	
 	bmtx = new mutex[1 << bsize];
 	removeDuplicate(); // kmer = 31
 
 	cout << "isnextrnd: " << coutIsNext() << endl;
-	indexConstruction();
+
+	edgesConstruction();
+
+	cout << "after edgesConstruction()..." << endl;
+
 	delete[] bmtx;
 
-	// sprintf(cmd, "rm -rf %s", folder.c_str());
-	// system(cmd);
-	// exit(0);
+	delete[] mini; mini = NULL;
+	delete[] snum; snum = NULL;
+	delete[] isnextrnd; isnextrnd = NULL;
 
-	treeConstuction();
+	mstConstruction();
 
-	delete[] isnextrnd;
-	delete[] prid2;
-	delete[] min_dif2;
-	
-	labelRoot();
+	// labelRoot();
 
+	// countTree();
+	// store trees
+	// storeTrees("test.tree");
+	/*if (ispe) {
+		if (isorder)
+			storeTrees(infile + ".tree.pe.order");
+		else storeTrees(infile + ".tree.pe");
+	} else {
+		if (isorder)
+			storeTrees(infile + ".tree.order");
+		else storeTrees(infile + ".tree");
+
+	}*/
+	// storeTrees("SRR870667_2.noN.tree");
+	// storeTrees("SRR870667_2.noN.noDup.tree");
+
+	// return 0;
+
+#endif
+
+#ifdef _LOADTREE
+	// loadTrees("SRR870667_2.noN.tree");
+	if (ispe) {
+		if (isorder)
+			loadTrees(infile + ".tree.pe.order");
+		else	
+			loadTrees(infile + ".tree.pe");
+	} else {
+		if (isorder)
+			loadTrees(infile + ".tree.order");
+		else	
+			loadTrees(infile + ".tree");
+	}
+
+	cout << "end _LOADTREE" << endl;
+	// labelRoot();
+	// countTree();
+#endif
+
+	// changeRootNode_v3();
+
+	// selectNoMismatchEdges();
+#ifdef DFSENCODING
+	// encodeAndSortChild();
+	// if (isorder) swappIDforOrder();
+	encodeReads();
+#endif
+
+#ifndef _LOADTREE
+	// cout << "after labelRoot()..." << endl;
+#endif	
 	// cutSomeEdges();
 	// if (isorder) {
 	// 	encodeNode();
 	// } else 
-		changeNode();
 
 	if (ispe) {
 		// outputPE();
-		outputPEX();
+		if (isorder) {
+			outputPEOrder();
+		} else
+			outputPEX();
 	} else {
 		if (isorder) {
 			outputSingleOrder();
 		} else
-			outputSingle();
+			// outputSingle();
+#ifdef DFSENCODING
+			outputSingleDFS();
+			// outputSingleDFS_v2();
+#endif
+
+#ifndef DFSENCODING			
+			// outputSingleDFS_v1();
+			outputSingleV1();
+#endif
 	}
 
-	sprintf(cmd, "rm -rf %s", folder.c_str());
-	system(cmd);
-	delete[] cmd;
+	string cmd = "rm -rf " + folder;
+	system(cmd.c_str());
 
 	return 0;
 }
@@ -1476,3 +1200,156 @@ int main(int argc, char *argv[]){
 
 	return 0;
 }
+
+
+void storeTrees(string fn) {
+	cout << "store fn: " << fn << endl;
+	FILE *fp = fopen(fn.c_str(), "w");
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		fprintf(fp, "%u %d %d %d", reads[rid].prid, reads[rid].isrc, reads[rid].shift, reads[rid].dn);
+		if (reads[rid].dn > 0) {
+			if (isorder) {
+				for (uint32_t w = 1; w < reads[rid].dn + 1; ++w) {
+					fprintf(fp, " %u %d", reads[rid].dup[w].id, reads[rid].dup[w].isrc);
+				}
+			} else {
+				for (uint32_t w = 0; w < reads[rid].dn; ++w) {
+					fprintf(fp, " %u %d", reads[rid].dup[w].id, reads[rid].dup[w].isrc);
+				}
+			}
+		}
+		fprintf(fp, "\n");
+	}
+	fclose(fp);
+}
+
+int coutMismatch(char *parent, char *child, int8_t shift) {
+	int weight = 0, i, j;
+	if (shift >= 0) {
+		for (i = shift, j = 0; i < L; ++i, ++j) {
+			if (parent[i] != child[j]) {
+				++ weight;
+			}
+		}
+	} else {
+		shift = 0 - shift;
+		for (i = 0, j = shift; j < L; ++i, ++j) {
+			if (parent[i] != child[j]) {
+				++ weight;
+			}
+		}
+	}
+	// weight = weight * 2 + shift;
+	// weight*(8 + 8 + 1) + shift*8 + 8
+	// if (shift != 0) ++ weight;
+	return weight;
+}
+
+int courMismatch(uint32_t rid) {
+	char *str = (char*)alloca((L + 3) * sizeof(char));
+	strcpy(str, seq[rid].seq);
+	if (reads[rid].isrc) {
+		reverseComplement(str);
+	}
+	return coutMismatch(seq[reads[rid].prid].seq, str, reads[rid].shift);
+}
+
+void loadTrees(string fn) {
+	cout << "load fn: " << fn << endl;
+	int isrc, shift;
+	FILE *fp = fopen(fn.c_str(), "r");
+	reads = new READS_t[max_rid + 1];	
+	cout << "max_rid: " << max_rid << endl;
+	uint32_t did;
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		reverseReads(seq[rid].seq);
+		reads[rid].prid = rootarr[rid] = rid;
+		kv_init(reads[rid].crid);
+	}
+	isnextrnd = new bool[max_rid];
+	memset(isnextrnd, 0, sizeof(bool) * max_rid);
+	char *str = new char[L + 1];
+
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		fscanf(fp, "%u%d%d%d", &reads[rid].prid, &isrc, &shift, &reads[rid].dn);
+		reads[rid].isrc = isrc;
+		reads[rid].shift = shift;
+		if (reads[rid].dn > 0) {
+			reads[rid].dup = new dup_t[reads[rid].dn + 1];
+			if (isorder) {
+				for (uint32_t w = 1; w < reads[rid].dn + 1; ++w) {
+					fscanf(fp, "%u%d", &did, &isrc);
+					reads[rid].dup[w] = dup_t(did, isrc);
+					isnextrnd[did] = true;
+				}
+			} else {
+				for (uint32_t w = 0; w < reads[rid].dn; ++w) {
+					fscanf(fp, "%u%d", &did, &isrc);
+					reads[rid].dup[w] = dup_t(did, isrc);
+					isnextrnd[did] = true;
+				}
+			}
+		}
+
+		strcpy(str, seq[rid].seq);
+		bool flag = true;
+		if (strcmp(str, seq[reads[rid].prid].seq) == 0) {
+			flag = false;
+		}
+
+		reverseComplement(str);
+		if (strcmp(str, seq[reads[rid].prid].seq) == 0) {
+			flag = false;
+		}
+
+		if (reads[rid].prid != rid && flag) {
+			kv_push(uint32_t, reads[reads[rid].prid].crid, rid);
+		}
+	}
+	fclose(fp);
+	cout << "loadTrees() over" << endl;
+
+#ifdef false
+	FILE *fpout = fopen("a.txt", "w");
+	for (uint32_t rid = 0; rid < max_rid; ++rid) {
+		// if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads	
+		if (reads[rid].prid == rid && reads[rid].crid.n > 0) { //is the root node && not a leaf node == not a singleton reads	
+			queue<uint32_t> q;
+			q.push(rid);
+			uint32_t cnt = 0;
+			while (!q.empty()) {
+				uint32_t noderid = q.front();		
+				q.pop();
+
+				++ cnt;
+				for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
+					q.push(reads[noderid].crid.a[i]);
+				}
+			}
+
+			if (cnt > 500) {
+				uint32_t noderid = rid;
+				q.push(rid);
+				while (!q.empty()) {
+					noderid = q.front();
+					q.pop();
+
+					for (size_t i = 0; i < reads[noderid].crid.n; ++i) {
+						uint32_t crid = reads[noderid].crid.a[i];
+						q.push(crid);
+
+						int misno = courMismatch(crid);
+
+						fprintf(fpout, "%d %d\n", + reads[crid].shift, misno);
+					}
+					fprintf(fpout, "----\n");
+				}
+
+				exit(0);
+			}
+		}
+	}
+	fclose(fpout);
+#endif
+}
+

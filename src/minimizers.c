@@ -9,10 +9,10 @@ void calc128MinimizersDupFun() { // before calling this method, MUST set rid_pth
 		if (rid >= max_rid) break;
 		// cout << "rid: " << rid << endl;
 		tr = &reads[rid];
-		tr->prid = tr->root = rid;
+		tr->prid = rid;
 		kv_init(tr->crid);
-		prid2[rid] = rid;
-		min_dif2[rid] = L;
+
+		reverseReads(seq[rid].seq);
 
 		min128sketch(seq[rid].seq, L, kmer, rid, &minimizer);
 
@@ -40,10 +40,10 @@ void calc192MinimizersDupFun() { // before calling this method, MUST set rid_pth
 		// if (kmer == max_kmer) {
 		// isnextrnd[rid] = true;
 		tr = &reads[rid];
-		tr->prid = tr->root = rid;		
+		tr->prid = rid;		
 		kv_init(tr->crid);
-		prid2[rid] = rid;
-		min_dif2[rid] = L;
+
+		reverseReads(seq[rid].seq);
 
 		min192sketch(seq[rid].seq, L, kmer, rid, &minimizer);
 		bucketidx = ((minimizer.x.x & mask) + (minimizer.x.y & mask)) & mask;
@@ -132,6 +132,7 @@ void calcMinimizers() {
 	threadVec.clear();
 	// cout << "minicount: " << minicount << endl;
 }
+
 ///
 void calc128MaximizersFun() { // before calling this method, MUST set rid_pthread = 0
 	mm128_t maximizer;
@@ -140,26 +141,11 @@ void calc128MaximizersFun() { // before calling this method, MUST set rid_pthrea
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
 		if (rid >= max_rid) break;
 		// cout << "rid: " << rid << endl;
-		/*if (kmer == max_kmer) {
-			ncnt = 0;
-			for (int i = 0; seq[rid].seq[i]; ++i) {
-				if (seq[rid].seq[i] == 'N') {
-					++ ncnt;
-				}
-			}
-			if (ncnt > L/2) {
-				isnextrnd[rid] = true;
-			}
-		}*/
+		
 		if (!isnextrnd[rid]) {
 			// __sync_fetch_and_add(&minicount, 1);
 			max128sketch(seq[rid].seq, L, kmer, rid, &maximizer);
 			bucketidx = maximizer.x & mask;
-			// if (4 == rid) cout << "rid 4 in " << bucketidx << endl;
-			/*if (rid == 1634593 || rid == 4) {
-				cout << rid << " - " << minimizer.x << endl;
-				cout << seq[rid].seq << endl;
-			}*/
 			mm128_v *p = &B[bucketidx];
 			bmtx[bucketidx].lock();
 			kv_push(mm128_t, *p, maximizer);
@@ -174,18 +160,6 @@ void calc192MaximizersFun() { // before calling this method, MUST set rid_pthrea
 	while (1) {
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
 		if (rid >= max_rid) break;
-
-		/*if (kmer == max_kmer) {
-			ncnt = 0;
-			for (int i = 0; seq[rid].seq[i]; ++i) {
-				if (seq[rid].seq[i] == 'N') {
-					++ ncnt;
-				}
-			}
-			if (ncnt > L/2) {
-				isnextrnd[rid] = true;
-			}
-		}*/
 
 		if (!isnextrnd[rid]) {
 			// __sync_fetch_and_add(&minicount, 1);
@@ -320,9 +294,9 @@ void sortBuckets() {
 	// sort rec
 	sort (rec.a, rec.a + rec.n, reccmp);
 	
-	fprintf(stderr, "rec.n: %lu\n", rec.n);
-	for (int i = 0; i < 10 && i < rec.n; ++i) {
-		fprintf(stderr, "%lu, ", rec.a[i].z);
-	}
-	fprintf(stderr, "\n");
+	// fprintf(stderr, "rec.n: %lu\n", rec.n);
+	// for (int i = 0; i < 10 && i < rec.n; ++i) {
+	// 	fprintf(stderr, "%lu, ", rec.a[i].z);
+	// }
+	// fprintf(stderr, "\n");
 }
