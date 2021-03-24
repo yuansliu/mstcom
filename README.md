@@ -28,3 +28,5 @@ Options
 
 ## Note
 Mstcom can not compress paired-end reads data having different lengths, e.g., SRR327342. To compress such datasets, compress the two FASTQ files separately.
+
+It should be pointed out that the dataset ERR174310 downloaded from NCBI have different lengths of two ends. In our experiments, we downloaded it from EBI.
