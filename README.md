@@ -25,3 +25,6 @@ Options
  	-h              print help message
  	-t              number of threads, default: 24
   
+
+## Note
+Mstcom can not compress paired-end reads data having different lengths, e.g., SRR327342. To compress such datasets, compress the two FASTQ files separately.
