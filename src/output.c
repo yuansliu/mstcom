@@ -817,8 +817,9 @@ inline uint32_t query(uint32_t *tr, uint32_t M, uint32_t s, uint32_t t) {
 }
 
 void outputPEX() {
+	int maxL = max(L1, L2);
 	stopwatch.resume();
-	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
+	char *rcstr = (char*)alloca((maxL + 3) * sizeof(char));
 
 	string encodestrfn = folder + "encodestr.txt";
 	FILE *fpenstr = fopen(encodestrfn.c_str(), "w");
@@ -862,7 +863,7 @@ void outputPEX() {
 	string filefn = folder + "file.bin";
 	std::ofstream fpfile(filefn, std::ios::binary);
 	
-	char *en_str = (char*)alloca((L + 1) * sizeof(char));
+	char *en_str = (char*)alloca((maxL + 1) * sizeof(char));
 
 	uint32_t *ids = new uint32_t[max_rid + 1];
 	uint32_t idsid = 0, dn, curid;
@@ -1035,6 +1036,18 @@ void outputPEX() {
 		}
 	}
 	fclose(fpenstr);
+ 	
+ 	// 	FILE *fp = fopen("encids.txt", "w");
+	// for (size_t id = 0; id < max_rid; ++id) {
+	// 	fprintf(fp, "%u\n", ids[id]);
+	// }
+	// fclose(fp);
+
+	// fp = fopen("encod.txt", "w");
+	// for (size_t id = 0; id < max_rid; ++id) {
+	// 	fprintf(fp, "%u\n", od[id]);
+	// }
+	// fclose(fp);
 
 	// calc dist
 	// FILE *fp = fopen("dist.txt", "w");
@@ -1060,7 +1073,7 @@ void outputPEX() {
 				p = od[half + ids[id]];
 
 				r = query(tr, M, id + 1 + 1, p + 1);
-				if (debug) cout << "r: " << r << endl;
+				// if (debug) cout << "r: " << r << endl;
 				dist = p + 1 - (id + 1 + 1) + 1 - r;
 				res = (int32_t)dist;
 			} else { // from second file
@@ -1147,6 +1160,7 @@ void outputPEX() {
 // v0 work well
 // void outputPEOrder_work_well_v0() {
 void outputPEOrder() {
+	cout << "in outputPEOrder()..." << endl;
 	stopwatch.resume();
 	char *rcstr = (char*)alloca((L + 3) * sizeof(char));
 
@@ -1206,6 +1220,8 @@ void outputPEOrder() {
 	uint32_t dupno = 0, rcdupno = 0;
 	uint32_t dupnum = 0, printnum = 0;
 	// FILE *fprootdegree = fopen("rootdegree.txt", "w");
+	// FILE *fpdirinf = fopen("encdir.txt", "w");
+	// FILE *fprid = fopen("rid.txt", "w");
 
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
 		if (!visited[rid] && reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads
@@ -1285,11 +1301,25 @@ void outputPEOrder() {
 					if (reads[rootid].shift != 0) {
 						// bit for shift offset
 						if (reads[rootid].shift > 0) {
+							// if (rootid == 919803) {
+							// 	cout << "isleftbin: 1" << endl;
+							// }
+							// fprintf(fpdirinf, "1\n");
 							bit_push(isleftbin, fpisleft, 1);
 						} else {
+							// if (rootid == 919803) {
+							// 	cout << "isleftbin: 0" << endl;
+							// }
 							bit_push(isleftbin, fpisleft, 0);
+							// fprintf(fpdirinf, "0\n");
 						}
 					}
+					// else {
+					// 	fprintf(fpdirinf, "n\n");
+					// 	// cout << rootid << endl;
+					// 	// exit(0);
+					// }
+					// fprintf(fprid, "%u\n", rootid);
 
 					{
 						dupno = 0; rcdupno = 0;
@@ -1362,6 +1392,9 @@ void outputPEOrder() {
 	}
 	fpisleft.close();
 
+	// fclose(fpdirinf);
+	// fclose(fprid);
+
 	fprintf(fpenstr, "-\n");
 	for (uint32_t rid = 0; rid < (max_rid); ++rid) {
 		if (!visited[rid]) {
@@ -1369,6 +1402,9 @@ void outputPEOrder() {
 			od[rid] = idsid ++;
 			// fprintf(fpid, "%lu\n", rid);
 			fprintf(fpenstr, "%s\n", seq[rid].seq);
+			// if (strcmp(seq[rid].seq, "CTCTAAGAGAGAAAAAATAAGAGAGGAAAAGAGAGAAAAGAAAACAACCTCCTTTTACCTACTATTATCATTCATTTATTGTCGTTAAAAGAANNNNTCTAC") == 0) {
+			// 	cout << "it is singleton reads" << endl;
+			// }
 		}
 	}
 	fclose(fpenstr);
@@ -1397,7 +1433,7 @@ void outputPEOrder() {
 				p = od[half + ids[id]];
 
 				r = query(tr, M, id + 1 + 1, p + 1);
-				if (debug) cout << "r: " << r << endl;
+				// if (debug) cout << "r: " << r << endl;
 				dist = p + 1 - (id + 1 + 1) + 1 - r;
 				res = (int32_t)dist;
 
@@ -1446,7 +1482,7 @@ void outputPEOrder() {
 	}
 	fpfile.close();
 
-	cout << "end segment array\n";
+	// cout << "end segment array\n";
 
 	fpdist.close();
 	smfpdist.close();

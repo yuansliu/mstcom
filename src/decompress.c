@@ -2,7 +2,7 @@
 using namespace std;
 
 class dec_class{
-int L;
+int L, L1, L2;
 int ispe, isorder;
 uint32_t max_ctg_length;
 size_t max_rid;
@@ -56,6 +56,32 @@ inline void reverseComplement(char* start) {
 }
 
 inline void reverseReads(char* start) {
+	char* left = start; // sequence starts
+	char* right = start + L - 1;
+	while (right > left) {
+		char tmp = *left;
+		*left = *right;
+		*right = tmp;
+		++left;
+		--right;
+	}
+}
+
+inline void reverseComplement(char* start, int L) {
+	char* left = start; // sequence starts
+	char* right = start + L - 1;
+	while (right > left) {
+		char tmp = complement[(uint8_t)*left];
+		*left = complement[(uint8_t)*right];
+		*right = tmp;
+		++left;
+		--right;
+	}
+	if (left == right)
+		*left = complement[(uint8_t)*left];
+}
+
+inline void reverseReads(char* start, int L) {
 	char* left = start; // sequence starts
 	char* right = start + L - 1;
 	while (right > left) {
@@ -479,20 +505,20 @@ void decompressFile(string file) {
 }
 
 int debugcnt = 0, mindebugcnt = 0;
-
+	
 inline void decodeStr(string pstr, char *enstr, int curshiftdirection, char *dstr) {
-	bool debug = false;
+	// bool debug = false;
 
-	if (debugcnt >= mindebugcnt && debugcnt < mindebugcnt + 10) {
+	// if (debugcnt >= mindebugcnt && debugcnt < mindebugcnt + 10) {
 		// debug = true;
-	}
+	// }
 	// ++ debugcnt;
 
-	if (debug) {
-		cout << "pstr: " << pstr << endl;
-		cout << "shift direction: " << curshiftdirection << endl;
-		cout << enstr << endl;
-	}
+	// if (debug) {
+	// 	cout << "pstr: " << pstr << endl;
+	// 	cout << "shift direction: " << curshiftdirection << endl;
+	// 	cout << enstr << endl;
+	// }
 
 	string shiftpartsubstr = "";
 	int len = strlen(enstr);
@@ -504,9 +530,9 @@ inline void decodeStr(string pstr, char *enstr, int curshiftdirection, char *dst
 	}
 	int shiftlen = shiftpartsubstr.length();
 
-	if (debug) {
+	// if (debug) {
 		// cout << "shiftpartsubstr: " << shiftpartsubstr << endl;
-	}
+	// }
 
 	if (shiftlen != 0) {
 		if (curshiftdirection == 0) {
@@ -542,17 +568,176 @@ inline void decodeStr(string pstr, char *enstr, int curshiftdirection, char *dst
 		} else { // a base
 			pos = prepos + v;
 			dstr[pos] = enstr[i];
-			if (debug) {
-				// cout << "pos: " << pos << "; base: " << enstr[i] << endl;
-			}
+			// if (debug) {
+			// 	// cout << "pos: " << pos << "; base: " << enstr[i] << endl;
+			// }
 			prepos = pos + 1;
 			v = 0;
 		}
 	}
-	if (debug) {
-		fprintf(stderr, "%s\n", dstr);
-		// exit(1);
+	// if (debug) {
+	// 	fprintf(stderr, "%s\n", dstr);
+	// 	// exit(1);
+	// }
+}
+
+inline void decodeStr(string pstr, char *enstr, int curshiftdirection, int filelistval, char *dstr) {
+
+	// if (debugcnt >= mindebugcnt && debugcnt < mindebugcnt + 10) {
+	// bool debug = false;
+	// if (strcmp(enstr, "ACTCCGTTAAGAGGACGGAGTCAGAGGGTT3T1N14G5A6C11N0N8T0A5G6G") == 0
+	// if (strcmp(enstr, "CAGATTTAATTTTGAGTTCTTGAGGAATACGAAA1A13T5G2G14A14G12T") == 0
+	// if (strcmp(enstr, "TGT14G0T9T6T5G0T5T1C12C32T") == 0
+	// if (strcmp(enstr, "TTT7A17T10A12G0T20A9T14C") == 0
+	// if (strcmp(enstr, "AGGT27A0C21T1C42G") == 0
+	// if (strcmp(enstr, "AA8A1A3A3A3A3A3A3A3A2C0A3A3A7A0G2A0G2A0G3G0A0T1G0A2G0A10A0G") == 0
+	// 	// && strcmp(pstr.c_str(), "ACAAAAAAACTCTACCTCAAAACGAGAACAATGGGTCCGGCCTCACGTTACCGCACTAGAACCGAGTAACGTTGAAGACGGAGGACCCAAGTTCGTTAAG") == 0
+	// 	) {
+	// 	debug = true;
+	// }
+	// if (debug) {
+	// 	// cout << "pstr: " << pstr << endl;
+	// 	cout << "shift direction: " << curshiftdirection << endl;
+	// 	cout << enstr << endl;
+	// }
+	// ++ debugcnt;
+	int pl = pstr.length();
+	int cl = filelistval == 0? L1: L2;
+
+	if (pl == cl) {
+		// decodeStr(pstr, enstr, curshiftdirection, dstr);
+		string shiftpartsubstr = "";
+		int len = strlen(enstr);
+		int i = 0, j, k;
+		// get shift part
+		for (i = 0; i < len; ++i) {
+			if (enstr[i] >= '0' && enstr[i] <= '9') break;
+			shiftpartsubstr += enstr[i];
+		}
+		int shiftlen = shiftpartsubstr.length();
+
+		// if (debug) {
+			// cout << "shiftpartsubstr: " << shiftpartsubstr << endl;
+		// }
+
+		if (shiftlen != 0) {
+			if (curshiftdirection == 0) {
+				for (j = 0; j < shiftlen; ++j) {
+					dstr[j] = shiftpartsubstr[j];
+				}
+				for (k = 0; j < pl; ++j, ++k) {
+					dstr[j] = pstr[k];
+				}
+			} else {
+				for (j = 0, k = shiftlen; k < pl; ++j, ++k) {
+					dstr[j] = pstr[k];
+				}
+				for (k = 0; k < shiftlen; ++k, ++j) {
+					dstr[j] = shiftpartsubstr[k];
+				}
+			}
+		} else { // shiftlen == 0
+			for (j = 0, k = 0; k < pl; ++j, ++k) {
+				dstr[j] = pstr[k];
+			}
+		}
+		dstr[pl] = '\0';
+
+		// get mismatch positions and bases
+		int v = 0, prepos = 0, pos;
+		if (curshiftdirection == 0) {
+			prepos += shiftlen;
+		}
+		for (; i < len; ++i) {
+			if (enstr[i] >= '0' && enstr[i] <= '9') {
+				v = v * 10 + enstr[i] - '0';
+			} else { // a base
+				pos = prepos + v;
+				dstr[pos] = enstr[i];
+				if (debug) {
+					// cout << "pos: " << pos << "; base: " << enstr[i] << endl;
+				}
+				prepos = pos + 1;
+				v = 0;
+			}
+		}
+	} else {
+		// pl != cl
+		// cout << "111" << endl;
+		string shiftpartsubstr = "";
+		int len = strlen(enstr);
+		int i = 0, j, k;
+		// get shift part
+		for (i = 0; i < len; ++i) {
+			if (enstr[i] >= '0' && enstr[i] <= '9') break;
+			shiftpartsubstr += enstr[i];
+		}
+		int shiftlen = shiftpartsubstr.length();
+
+		// if (debug) {
+		// 	cout << "shiftpartsubstr: " << shiftpartsubstr << endl;
+		// }
+
+		// always hold shiftlen > 0
+		if (shiftlen != 0) {
+			if (curshiftdirection == 0) {
+				// cast: curshiftdirection == 0
+				//       AATTGCATGC parent
+				//    TCGAATTGCA
+				for (j = 0; j < shiftlen; ++j) {
+					dstr[j] = shiftpartsubstr[j];
+				}
+				for (k = 0; j < cl; ++j, ++k) {
+					dstr[j] = pstr[k];
+				}
+			} else {
+				// case curshiftdirection == 1
+				//    AATTGCATGC parent
+				//      TTGCATGCGAAAA  
+
+				// if (debug) cout << "pl - (cl - shiftlen): " << pl - (cl - shiftlen) << endl;
+
+				for (j = 0, k = pl - (cl - shiftlen); k < pl; ++j, ++k) {
+					dstr[j] = pstr[k];
+				}
+				for (k = 0; k < shiftlen; ++k, ++j) {
+					dstr[j] = shiftpartsubstr[k];
+				}
+				// shiftlen = pl - (cl - shiftlen);
+			}
+		} 
+		dstr[cl] = '\0';
+		// cout << "222" << endl;
+		// get mismatch positions and bases
+		int v = 0, prepos = 0, pos;
+		if (curshiftdirection == 0) {
+			prepos += shiftlen;
+		}
+		for (; i < len; ++i) {
+			if (enstr[i] >= '0' && enstr[i] <= '9') {
+				v = v * 10 + enstr[i] - '0';
+			} else { // a base
+				pos = prepos + v;
+				dstr[pos] = enstr[i];
+				if (debug) {
+					// cout << "pos: " << pos << "; base: " << enstr[i] << endl;
+				}
+				prepos = pos + 1;
+				v = 0;
+			}
+		}
+		// if (debug) {
+		// 	fprintf(stderr, "%s\n", dstr);
+		// 	// exit(1);
+		// }
+		// cout << "333" << endl;
 	}
+
+	// if (debug) {
+	// 	cout << "pstr: " << pstr << endl;
+	// 	cout << "dstr: " << dstr << endl;
+	// 	cout << "----" << endl;
+	// }
 }
 
 inline void decodeStr_v1(string pstr, char *enstr, int curshiftdirection, char *dstr) {
@@ -1687,11 +1872,23 @@ void decompressPEX(string result) {
 	delete[] tr;
 	delete[] flag;
 
+	// FILE *fp = fopen("decids.txt", "w");
+	// for (size_t id = 0; id < max_rid; ++id) {
+	// 	fprintf(fp, "%u\n", ids[id]);
+	// }
+	// fclose(fp);
+
 	size_t *od = new size_t[max_rid + 3];
 	for (size_t id = 0; id < max_rid; ++id) {
 		od[ids[id]] = id;
 	}
 	delete[] ids;
+
+	// fp = fopen("decod.txt", "w");
+	// for (size_t id = 0; id < max_rid; ++id) {
+	// 	fprintf(fp, "%u\n", od[id]);
+	// }
+	// fclose(fp);
 
 	for (size_t id = 0; id < half; ++id) {
 		fprintf(fpdecstr1, "%s\n", readsstr[od[id]]);
@@ -1700,6 +1897,286 @@ void decompressPEX(string result) {
 	for (size_t id = half; id < max_rid; ++id) {
 		fprintf(fpdecstr2, "%s\n", readsstr[od[id]]);
 	}
+
+	fclose(fpdecstr1);
+	fclose(fpdecstr2);
+}
+
+void decompressPEXL1L2(string result) {
+	fprintf(stderr, "decompressPE()...\n");
+	string encodestrfn = folder + "encodestr.txt";
+	mstcom::bsc::BSC_decompress((encodestrfn+".bsc").c_str(), encodestrfn.c_str());
+
+	string isleftbinfn = folder + "isleft.bin";
+	decompressFile(isleftbinfn);
+	std::ifstream fpisleft(isleftbinfn, std::ios::binary);
+
+	string dupfn = folder + "dup.bin";
+	decompressFile(dupfn);
+	std::ifstream fpdup(dupfn.c_str(), std::ios::binary);
+
+	string isdupfn = folder + "isdup.bin";
+	decompressFile(isdupfn);
+	std::ifstream fpisdup(isdupfn.c_str(), std::ios::binary);
+
+	string filefn = folder + "file.bin";
+	decompressFile(filefn);
+	std::ifstream fpfile(filefn.c_str(), std::ios::binary);
+
+	string dirbinfn = folder + "dir.bin";
+	mstcom::bsc::BSC_decompress((dirbinfn+".bsc").c_str(), dirbinfn.c_str());
+	std::ifstream fpdir(dirbinfn.c_str(), std::ios::binary);
+
+	string distfn = folder + "dist.bin";
+	decompressFile(distfn);
+
+	string smdistfn = folder + "smdist.bin";
+	decompressFile(smdistfn);
+
+	BITPOOL curdirpool, curisduppool, curisleftpool, curfilepool;
+	curdirpool.n = 8;
+	curisduppool.n = 8;
+	curisleftpool.n = 8;
+	curfilepool.n = 8;
+	int dir, file;
+	int *filelist = new int[max_rid];
+
+	///
+	size_t *ids = new size_t[max_rid + 3];
+
+	size_t *tr, M;
+	build(tr, M, max_rid);
+
+	bool *flag = new bool[max_rid + 3];
+	memset(flag, false, sizeof(bool)*max_rid); 
+
+	size_t half = max_rid >> 1, pid;
+	std::ifstream fpdist(distfn.c_str(), std::ios::binary);
+	std::ifstream smfpdist(smdistfn.c_str(), std::ios::binary);
+	
+	uint32_t tempid;
+	uint32_t dist;
+	// int32_t dist;
+	uint16_t disttemp;
+
+	size_t id = 0;
+	for (size_t num = 0; num < max_rid; ++num) {
+		if (!flag[num]) {
+			dir = getDir(fpfile, curfilepool);
+			filelist[num] = dir;
+			file = getDir(fpfile, curfilepool);
+			if (file) {
+				fpdist.read((char*)&dist, sizeof(uint32_t));
+			} else {
+				smfpdist.read((char*)&disttemp, sizeof(uint16_t));
+				dist = (uint32_t)disttemp;
+			}
+			
+			ids[num] = id ++;
+			if (dir) {
+				ids[num] += half;
+			}
+
+			pid = binarySearch(tr, M, num + 1 + 1, max_rid, flag, dist);
+
+			if (ids[num] < half) {
+				ids[pid - 1] = half + ids[num];
+			} else {
+				ids[pid - 1] = ids[num] - half;
+			}
+
+			update(tr, M, pid, 1);
+			flag[pid - 1] = true;
+			filelist[pid - 1] = dir > 0?0:1;
+		}
+	}
+
+	// cout << "yyyy\n";
+	fpdist.close();
+	smfpdist.close();
+	delete[] tr;
+	delete[] flag;
+
+	FILE *fpenstr = fopen(encodestrfn.c_str(), "r");
+
+	FILE *fpdecstr1 = fopen((result+"_1").c_str(), "w");
+	FILE *fpdecstr2 = fopen((result+"_2").c_str(), "w");
+	char str[1<<10], rcstr[1<<10], enstr[1<<10], dstr[1<<10], ori[1<<10], aft[1<<10], ctg[1<<10];
+
+	// int num = 112;
+	int dn, idx, curshiftdirection;
+	uint32_t dupno, rcdupno;
+	vector<READS_t> reads;
+	size_t leftnum = 0;
+	uint32_t rid = 0;
+	char **readsstr = new char*[max_rid + 1];
+
+	while (fscanf(fpenstr, "%s", enstr) != EOF) {
+		if (enstr[0] == '-') break;
+
+		if (checkStrOrDig(enstr)) {
+			uint32_t enstrlen = strlen(enstr);
+			
+			if (enstrlen < min(L1, L2)) { // 
+				// 0 shift > 0; 1 shift < 1;
+				if (enstr[0] >= '0' && enstr[0] <= '9') { // no shift
+					curshiftdirection = 0;
+				} else {
+					curshiftdirection = getDir(fpisleft, curisleftpool);
+				}
+				// 0 for left shift; 1 for right shift;
+				// cout << "1010101010" << endl;
+				decodeStr(reads[idx].str, enstr, curshiftdirection, filelist[rid], dstr); //
+				// cout << "12121212121212" << endl;
+
+				int dstrlen = (filelist[rid] == 0? L1: L2);
+				dir = getDir(fpdir, curdirpool);
+				if (dir) {
+					reverseComplement(dstr, dstrlen);
+				}
+
+				READS_t r(dstr, idx);
+				reads.push_back(r);
+				idx = reads.size() - 1;
+
+				// fprintf(fpw, "%s\n", dstr);
+				string tempstr = dstr;
+
+				reverseReads(dstr, dstrlen);
+
+				// fprintf(fpdecstr, "%s\n", dstr);
+				readsstr[rid ++] = strdup(dstr);
+				// ++ printnum;
+				// if (strcmp(dstr, "83GGAAATGGCTGGGTCAAATGGTATTTCTAGTTCTAGATCCCTGAGGAATCGCCACACTGACTTCCACAATGGTTGAACTAGTTTACATTCCCACCAAGA") == 0) 
+				// 	cout << "dstr in !isctgtree\n";
+
+				int isdup = getDir(fpisdup, curisduppool);
+
+				if (isdup) {
+					reverseReads(dstr, dstrlen);
+					strcpy(rcstr, dstr);
+					reverseComplement(rcstr, dstrlen);
+
+					reverseReads(dstr, dstrlen);
+					reverseReads(rcstr, dstrlen);
+
+					fpdup.read((char*)&dupno, sizeof(uint32_t));
+					fpdup.read((char*)&rcdupno, sizeof(uint32_t));
+
+					for (int w = 0; w < dupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", dstr);
+						readsstr[rid ++] = strdup(dstr);
+					}
+					for (int w = 0; w < rcdupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", rcstr);
+						readsstr[rid ++] = strdup(rcstr);
+					}
+				}
+
+			} else {			
+			// if (enstrlen == L1 || enstrlen == L2) { // root node // enstrlen == L1 || == L2
+				reads.clear();
+
+				READS_t r(enstr, 0);
+				reads.push_back(r);
+				idx = 0;
+
+				// preshiftdirection = 0; // 0 for left shift; 1 for right shift;
+				// fprintf(fpw, "%s\n", enstr);
+
+				string tempstr = enstr;
+				int enstrlen = strlen(enstr);
+				reverseReads(enstr, enstrlen);
+
+				// fprintf(fpdecstr, "%s\n", enstr);
+				readsstr[rid ++] = strdup(enstr);
+				// ++ printnum;
+
+				bool debug = false;
+				int isdup = getDir(fpisdup, curisduppool);
+
+				if (isdup) {
+					reverseReads(enstr, enstrlen);
+					strcpy(rcstr, enstr);
+					reverseComplement(rcstr, enstrlen);
+
+					reverseReads(enstr, enstrlen);
+					reverseReads(rcstr, enstrlen);
+
+					fpdup.read((char*)&dupno, sizeof(uint32_t));
+					fpdup.read((char*)&rcdupno, sizeof(uint32_t));
+
+					for (int w = 0; w < dupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", enstr);
+						readsstr[rid ++] = strdup(enstr);
+					}
+					for (int w = 0; w < rcdupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", rcstr);
+						readsstr[rid ++] = strdup(rcstr);
+					}
+				}
+			}
+		} else {
+			int back_step = atoi(enstr);
+			while (back_step > 0) {
+				idx = reads[idx].prid;
+				--back_step;
+			}
+		}
+	}
+	// cout << "over decode..." << endl;
+	
+	while (fscanf(fpenstr, "%s", dstr) != EOF) {
+
+		reverseReads(dstr, strlen(dstr));
+
+		readsstr[rid ++] = strdup(dstr);
+	}
+	fclose(fpenstr);
+	// cout << "1111" << endl;
+	fpdir.close();
+	fpisdup.close();
+	fpdup.close();
+	fpisleft.close();
+
+
+	// FILE *fp = fopen("decids.txt", "w");
+	// for (size_t id = 0; id < max_rid; ++id) {
+	// 	fprintf(fp, "%u\n", ids[id]);
+	// }
+	// fclose(fp);
+
+	// cout << "11112222" << endl;
+	size_t *od = new size_t[max_rid + 3];
+	for (size_t id = 0; id < max_rid; ++id) {
+		od[ids[id]] = id;
+	}
+	delete[] ids;
+	// cout << "111122223333333" << endl;
+
+	// fp = fopen("decod.txt", "w");
+	// for (size_t id = 0; id < max_rid; ++id) {
+	// 	fprintf(fp, "%u\n", od[id]);
+	// }
+	// fclose(fp);
+
+	// cout << "1111222233333331111" << endl;
+	// fp = fopen("decstr.txt", "w");
+	// for (size_t id = 0; id < max_rid; ++id) {
+	// 	fprintf(fp, "%s\n", readsstr[id]);
+	// }
+	// fclose(fp);
+
+	for (size_t id = 0; id < half; ++id) {
+		fprintf(fpdecstr1, "%s\n", readsstr[od[id]]);
+	}
+	// cout << "1111222233333334444" << endl;
+
+	for (size_t id = half; id < max_rid; ++id) {
+		// cout << readsstr[od[id]] << endl;
+		fprintf(fpdecstr2, "%s\n", readsstr[od[id]]);
+	}
+	// cout << "1111222233333334444555" << endl;
 
 	fclose(fpdecstr1);
 	fclose(fpdecstr2);
@@ -1987,6 +2464,306 @@ void decompressPEOrder(string result) {
 	fclose(fpdecstr2);
 }
 
+void decompressPEOrderL1L2(string result) {
+	fprintf(stderr, "decompressPEOrder()...\n");
+	string encodestrfn = folder + "encodestr.txt";
+	mstcom::bsc::BSC_decompress((encodestrfn+".bsc").c_str(), encodestrfn.c_str());
+
+	string orderfn = folder + string("order.bin");
+	decompressFile(orderfn);
+	std::ifstream fporder(orderfn, std::ios::binary);
+
+	string isleftbinfn = folder + "isleft.bin";
+	decompressFile(isleftbinfn);
+	std::ifstream fpisleft(isleftbinfn, std::ios::binary);
+
+	string dupfn = folder + "dup.bin";
+	decompressFile(dupfn);
+	std::ifstream fpdup(dupfn.c_str(), std::ios::binary);
+
+	string isdupfn = folder + "isdup.bin";
+	decompressFile(isdupfn);
+	std::ifstream fpisdup(isdupfn.c_str(), std::ios::binary);
+
+	string filefn = folder + "file.bin";
+	decompressFile(filefn);
+	std::ifstream fpfile(filefn.c_str(), std::ios::binary);
+
+	string dirbinfn = folder + "dir.bin";
+	mstcom::bsc::BSC_decompress((dirbinfn+".bsc").c_str(), dirbinfn.c_str());
+	std::ifstream fpdir(dirbinfn.c_str(), std::ios::binary);
+
+	string distfn = folder + "dist.bin";
+	decompressFile(distfn);
+
+	string smdistfn = folder + "smdist.bin";
+	decompressFile(smdistfn);
+
+	BITPOOL curdirpool, curisduppool, curisleftpool, curfilepool;
+	curdirpool.n = 8;
+	curisduppool.n = 8;
+	curisleftpool.n = 8;
+	curfilepool.n = 8;
+	int dir, file;
+	int *filelist = new int[max_rid];
+
+	///
+	size_t *ids = new size_t[max_rid + 3];
+
+	size_t *tr, M;
+	build(tr, M, max_rid);
+
+	bool *flag = new bool[max_rid + 3];
+	memset(flag, false, sizeof(bool)*max_rid); 
+
+	size_t half = max_rid >> 1, pid;
+	std::ifstream fpdist(distfn.c_str(), std::ios::binary);
+	std::ifstream smfpdist(smdistfn.c_str(), std::ios::binary);
+	
+	uint32_t tempid;
+	uint32_t dist;
+	// int32_t dist;
+	uint16_t disttemp;
+
+	for (size_t num = 0; num < max_rid; ++num) {
+		if (!flag[num]) {
+			fporder.read((char*)&tempid, sizeof(uint32_t));
+			dir = getDir(fpfile, curfilepool);
+			filelist[num] = dir;
+			file = getDir(fpfile, curfilepool);
+			if (file) {
+				fpdist.read((char*)&dist, sizeof(uint32_t));
+			} else {
+				smfpdist.read((char*)&disttemp, sizeof(uint16_t));
+				dist = (uint32_t)disttemp;
+			}
+			++ dist;
+			// fpdist.read((char*)&dist, sizeof(int32_t));
+
+			ids[num] = tempid;
+			if (dir) {
+				ids[num] += half;
+			}
+
+			pid = binarySearch(tr, M, num + 1 + 1, max_rid, flag, dist);
+
+			if (ids[num] < half) {
+				ids[pid - 1] = half + ids[num];
+			} else {
+				ids[pid - 1] = ids[num] - half;
+			}
+
+			update(tr, M, pid, 1);
+			flag[pid - 1] = true;
+			filelist[pid - 1] = dir > 0?0:1;
+		}
+	}
+	fporder.close();
+	// cout << "yyyy\n";
+	fpdist.close();
+	smfpdist.close();
+	delete[] tr;
+	delete[] flag;
+
+	size_t *od = new size_t[max_rid + 3];
+	for (size_t id = 0; id < max_rid; ++id) {
+		od[ids[id]] = id;
+	}
+	delete[] ids;
+
+	FILE *fpenstr = fopen(encodestrfn.c_str(), "r");
+
+	FILE *fpdecstr1 = fopen((result+"_1").c_str(), "w");
+	FILE *fpdecstr2 = fopen((result+"_2").c_str(), "w");
+	char str[1<<10], rcstr[1<<10], enstr[1<<10], dstr[1<<10], ori[1<<10], aft[1<<10], ctg[1<<10];
+
+	// int num = 112;
+	int dn, idx, curshiftdirection;
+	uint32_t dupno, rcdupno;
+	vector<READS_t> reads;
+	size_t leftnum = 0;
+	uint32_t rid = 0;
+	char **readsstr = new char*[max_rid + 1];
+
+	// FILE *fpdirinf = fopen("decdir.txt", "w");
+
+	while (fscanf(fpenstr, "%s", enstr) != EOF) {
+		if (enstr[0] == '-') break;
+
+		if (checkStrOrDig(enstr)) {
+			uint32_t enstrlen = strlen(enstr);
+			
+			if (enstrlen < min(L1, L2)) { // 
+				// 0 shift < 0; 1 shift > 1;
+				if (enstr[0] >= '0' && enstr[0] <= '9') { // no shift
+					curshiftdirection = 0;
+					// fprintf(fpdirinf, "n\n");
+					// cout << enstr << endl;
+					// exit(0);
+				} else {
+					curshiftdirection = getDir(fpisleft, curisleftpool);
+					// fprintf(fpdirinf, "%d\n", curshiftdirection);
+				}
+				// 0 for left shift; 1 for right shift;
+
+				// if (strcmp(enstr, "2G10C6A16C1G2T10C1G12G3G3A0C1G0A3A1G1A7A0C") == 0) {
+				// 	cout << "curshiftdirection: " << curshiftdirection << endl;
+				// }
+
+				decodeStr(reads[idx].str, enstr, curshiftdirection, filelist[rid], dstr); //
+
+				int dstrlen = (filelist[rid] == 0? L1: L2);
+				dir = getDir(fpdir, curdirpool);
+				if (dir) {
+					reverseComplement(dstr, dstrlen);
+				}
+
+				READS_t r(dstr, idx);
+				reads.push_back(r);
+				idx = reads.size() - 1;
+
+				// fprintf(fpw, "%s\n", dstr);
+				string tempstr = dstr;
+
+				reverseReads(dstr, dstrlen);
+
+				// fprintf(fpdecstr, "%s\n", dstr);
+				readsstr[rid ++] = strdup(dstr);
+				// ++ printnum;
+				// if (strcmp(enstr, "ACTCCGTTAAGAGGACGGAGTCAGAGGGTT3T1N14G5A6C11N0N8T0A5G6G") == 0) {
+				// 	cout << dstr << endl;
+				// 	exit(0);
+				// }
+
+				int isdup = getDir(fpisdup, curisduppool);
+
+				if (isdup) {
+					reverseReads(dstr, dstrlen);
+					strcpy(rcstr, dstr);
+					reverseComplement(rcstr, dstrlen);
+
+					reverseReads(dstr, dstrlen);
+					reverseReads(rcstr, dstrlen);
+
+					fpdup.read((char*)&dupno, sizeof(uint32_t));
+					fpdup.read((char*)&rcdupno, sizeof(uint32_t));
+
+					// for (int w = 0; w < dupno + rcdupno; ++w) {
+					// 	fprintf(fpw, "%s\n", tempstr.c_str());
+					// }
+					// for (uint32_t w = 0; w < dupno; ++w) {
+					// 	fprintf(fpw, "%s\n", tempstr.c_str());
+					// 	++ printnum;
+					// 	++ dupnum;
+					// }
+					// for (uint32_t w = 0; w < rcdupno; ++w) {
+					// 	fprintf(fpw, "%s\n", tempstr.c_str());
+					// 	++ printnum;
+					// 	++ dupnum;
+					// }
+
+					for (int w = 0; w < dupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", dstr);
+						readsstr[rid ++] = strdup(dstr);
+					}
+					for (int w = 0; w < rcdupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", rcstr);
+						readsstr[rid ++] = strdup(rcstr);
+					}
+				}
+
+			} else { // root node // enstrlen == L
+				reads.clear();
+
+				READS_t r(enstr, 0);
+				reads.push_back(r);
+				idx = 0;
+
+				// preshiftdirection = 0; // 0 for left shift; 1 for right shift;
+				// fprintf(fpw, "%s\n", enstr);
+
+				string tempstr = enstr;
+				int enstrlen = strlen(enstr);
+				reverseReads(enstr, enstrlen);
+
+				// fprintf(fpdecstr, "%s\n", enstr);
+				readsstr[rid ++] = strdup(enstr);
+				// ++ printnum;
+
+				bool debug = false;
+				int isdup = getDir(fpisdup, curisduppool);
+
+				if (isdup) {
+					reverseReads(enstr, enstrlen);
+					strcpy(rcstr, enstr);
+					reverseComplement(rcstr, enstrlen);
+
+					reverseReads(enstr, enstrlen);
+					reverseReads(rcstr, enstrlen);
+
+					fpdup.read((char*)&dupno, sizeof(uint32_t));
+					fpdup.read((char*)&rcdupno, sizeof(uint32_t));
+
+					// for (int w = 0; w < dupno + rcdupno; ++w) {
+					// 	fprintf(fpw, "%s\n", tempstr.c_str());
+					// }
+					// for (uint32_t w = 0; w < dupno; ++w) {
+					// 	fprintf(fpw, "%s\n", tempstr.c_str());
+					// 	++ printnum;
+					// 	++ dupnum;
+					// }
+					// for (uint32_t w = 0; w < rcdupno; ++w) {
+					// 	fprintf(fpw, "%s\n", tempstr.c_str());
+					// 	++ printnum;
+					// 	++ dupnum;
+					// }
+
+					for (int w = 0; w < dupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", enstr);
+						readsstr[rid ++] = strdup(enstr);
+					}
+					for (int w = 0; w < rcdupno; ++w) {
+						// fprintf(fpdecstr, "%s\n", rcstr);
+						readsstr[rid ++] = strdup(rcstr);
+					}
+				}
+			}
+		} else {
+			int back_step = atoi(enstr);
+			while (back_step > 0) {
+				idx = reads[idx].prid;
+				--back_step;
+			}
+		}
+	}
+	
+	while (fscanf(fpenstr, "%s", dstr) != EOF) {
+		// if (strcmp(dstr, "CTCTAAGAGAGAAAAAATAAGAGAGGAAAAGAGAGAAAAGAAAACAACCTCCTTTTACCTACTATTATCATTCATTTATTGTCGTTAAAAGAANNNNTCTAC") == 0) {
+		// 	cout << "it is here" << endl;
+		// }
+		reverseReads(dstr, strlen(dstr));
+		readsstr[rid ++] = strdup(dstr);
+	}
+	fclose(fpenstr);
+
+	fpdir.close();
+	fpisdup.close();
+	fpdup.close();
+	fpisleft.close();
+	// fclose(fpdirinf);
+
+	for (size_t id = 0; id < half; ++id) {
+		fprintf(fpdecstr1, "%s\n", readsstr[od[id]]);
+	}
+
+	for (size_t id = half; id < max_rid; ++id) {
+		fprintf(fpdecstr2, "%s\n", readsstr[od[id]]);
+	}
+
+	fclose(fpdecstr1);
+	fclose(fpdecstr2);
+}
+
 void getPars(int argc, char* argv[]) {
 	bool isinfile = false, isoutfile = false; 
 	int oc;
@@ -2050,7 +2827,7 @@ public:
 
 		// decompressSingleTest(outfile.c_str());
 		// return 0;
-
+ 
 		string cmd = "tar -xf " + infile + " -C " + folder;
 		// tar -xf $filename -C $decomp
 		system(cmd.c_str());
@@ -2064,15 +2841,23 @@ public:
 			fscanf(fp, "%lu", &max_rid);
 			fprintf(stderr, "max_rid: %lu\n", max_rid);
 		}
+		L1 = L2 = L;
+		if (ispe) {
+			fscanf(fp, "%d%d", &L1, &L2);
+			fprintf(stderr, "L1: %d; L2: %d\n", L1, L2);
+		}
 		fclose(fp);
 		// return 0;
 
 		if (ispe) {
 			// decompressPE(argv[2]);
 			if (isorder) {
-				decompressPEOrder(outfile.c_str());
-			} else 
-				decompressPEX(outfile.c_str());
+				if (L1 == L2) decompressPEOrder(outfile.c_str());
+				else decompressPEOrderL1L2(outfile.c_str());
+			} else {
+				if (L1 == L2) decompressPEX(outfile.c_str());
+				else decompressPEXL1L2(outfile.c_str());
+			}
 		} else {
 			if (isorder) {
 				decompressSingleOrder(outfile.c_str());

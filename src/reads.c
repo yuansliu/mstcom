@@ -37,6 +37,21 @@ bool getRightReads(char const *fn) {
 	return true;
 }
 
+bool getRightReads(char const *fn, int LL) {
+	bseq_file_t *fp;
+	fp = bseq_open(fn);
+	if (fp == 0) return false;
+	fprintf(stdout, "Loading the second file %s ...\n", fn);
+	size_t leftmaxrid = RN;
+	bseq_read_second(seq, fp, &RN, LL);
+	bseq_close(fp); 
+	if (leftmaxrid != (RN>>1)) {
+		fprintf(stderr, "Two files contains different number of reads.\n");
+		return false;
+	}
+	return true;
+}
+
 // inline 
 int getReadsLength(char const *fn) {
 	bseq_file_t *fp;
@@ -47,6 +62,7 @@ int getReadsLength(char const *fn) {
 	return readslen;
 }
 
+#ifdef false
 // inline 
 int16_t diffstrlen(char *parent, char *child, const int16_t &b) {
 	int eq_char_num = 0;
@@ -139,7 +155,7 @@ int16_t diffstrlen(char *parent, char *_child, const int16_t &b, const bool &isr
 	}
 	return dif;
 }
-
+#endif
 // inline 
 void encode(char *parent, char *child, const int16_t &_shift, char *en_str) { //str1 is the short one string
 	// char *en_str = (char*)alloca(((L<<2) + 1) * sizeof(char));

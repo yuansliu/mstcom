@@ -6,8 +6,8 @@ void process128BucketsFun() {
 
 	// char *temp_str = (char*)alloca((L + 1) * sizeof(char));
 	// cout << "text xxx\n";
-
-	mm128_v *iv = new mm128_v[L];
+	int rL = max(L1, L2);
+	mm128_v *iv = new mm128_v[rL];
 	uint32_t ridvecid;
 	
 	while (1) {
@@ -21,7 +21,7 @@ void process128BucketsFun() {
 		// fprintf(stderr, "%lu %lu %lu\n", rec.a[i].x, rec.a[i].y, rec.a[i].z);
 		// if (i > 10) exit(0);
 
-		for (int k = 0; k < L; ++k) {
+		for (int k = 0; k < rL; ++k) {
 			kv_init(iv[k]);
 		}
 
@@ -33,7 +33,7 @@ void process128BucketsFun() {
 
 		ridvecid = __sync_fetch_and_add(&minisize, n);
 
-		for (uint32_t k = L - 1; k >= 0; --k) {
+		for (uint32_t k = rL - 1; k >= 0; --k) {
 			if (iv[k].n > 0) {
 				for (int i1 = 0; i1 < iv[k].n; ++i1) {
 					min128vec[ridvecid ++] = iv[k].a[i1];
@@ -53,8 +53,8 @@ void process192BucketsFun() {
 
 	// char *temp_str = (char*)alloca((L + 1) * sizeof(char));
 	// cout << "text xxx\n";
-
-	mm192_v *iv = new mm192_v[L];
+	int rL = max(L1, L2);
+	mm192_v *iv = new mm192_v[rL];
 	uint32_t ridvecid;
 	
 	while (1) {
@@ -68,7 +68,7 @@ void process192BucketsFun() {
 		// fprintf(stderr, "%lu %lu %lu\n", rec.a[i].x, rec.a[i].y, rec.a[i].z);
 		// if (i > 10) exit(0);
 
-		for (int k = 0; k < L; ++k) {
+		for (int k = 0; k < rL; ++k) {
 			kv_init(iv[k]);
 		}
 
@@ -81,7 +81,7 @@ void process192BucketsFun() {
 		ridvecid = __sync_fetch_and_add(&minisize, n);
 
 		// for (uint32_t k = 0; k < L; ++k) {
-		for (uint32_t k = L - 1; k >= 0; --k) {
+		for (uint32_t k = rL - 1; k >= 0; --k) {
 			if (iv[k].n > 0) {
 				for (int i1 = 0; i1 < iv[k].n; ++i1) {
 					min192vec[ridvecid ++] = iv[k].a[i1];
@@ -90,7 +90,7 @@ void process192BucketsFun() {
 			if (k == 0) break;
 		}
 
-		for (int k = 0; k < L; ++k) {
+		for (int k = 0; k < rL; ++k) {
 			kv_destroy(iv[k]);
 		}
 

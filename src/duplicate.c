@@ -12,7 +12,8 @@ void process128DupBucketsFun() {
 	uint32_t bid, start_a, n, j;
 	mm128_t aa;
 
-	mm128_v *iv = new mm128_v[L];
+	int rL = max(L1, L2);
+	mm128_v *iv = new mm128_v[rL];
 	uint32_t ridvecid, rid;
 	mm128_t maximizer;
 	
@@ -27,10 +28,9 @@ void process128DupBucketsFun() {
 		// fprintf(stderr, "%lu %lu %lu\n", rec.a[i].x, rec.a[i].y, rec.a[i].z);
 		// if (i > 10) exit(0);
 
-		for (int k = 0; k < L; ++k) {
+		for (int k = 0; k < rL; ++k) {
 			kv_init(iv[k]);
 		}
-
 		mm128_v *b = &B[bid];
 		for (uint32_t k = 0; k < n; ++k) {
 			aa = b->a[start_a + k];
@@ -42,10 +42,9 @@ void process128DupBucketsFun() {
 			// }
 			kv_push(mm128_t, iv[(uint32_t)aa.y >> 2], aa);
 		}
-
 		ridvecid = __sync_fetch_and_add(&minisize, n);
 
-		for (uint32_t k = L - 1; k > 0; --k) {
+		for (uint32_t k = rL - 1; k > 0; --k) {
 			b = &iv[k];
 			if (b->n > 0 ) {
 				if (b->n < 5000) {
@@ -56,9 +55,9 @@ void process128DupBucketsFun() {
 					for (int i1 = 0; i1 < b->n; ++i1) {
 						rid = b->a[i1].y >> 32;
 
+						int trL = (rid < (max_rid >> 1))? L1: L2;
 						// if (rid == 20387193) cout << "in maximizer\n";
-
-						max128sketch(seq[rid].seq, L, kmer, rid, &maximizer);
+						max128sketch(seq[rid].seq, trL, kmer, rid, &maximizer);
 						b->a[i1] = maximizer;
 					}
 					//
@@ -125,8 +124,9 @@ void findDupFun() {
 	uint64_t y, ty;
 	uint32_t rid, trid;
 	int dir, tdir;
-	char *stra = (char*)alloca((L + 1) * sizeof(char));
-	char *strb = (char*)alloca((L + 1) * sizeof(char));
+	int maxL = max(L1, L2);
+	char *stra = (char*)alloca((maxL + 1) * sizeof(char));
+	char *strb = (char*)alloca((maxL + 1) * sizeof(char));
 	// char *stra = new char[L+1];
 	// char *strb = new char[L+1];
 	while (1) {
@@ -138,8 +138,10 @@ void findDupFun() {
 		rid = y >> 32;
 		dir = (y>>1) & 1;
 		strcpy(stra, seq[rid].seq);
+
+		int rL = (rid < (max_rid>>1))?L1: L2;
 		if (dir) {
-			reverseComplement(stra);
+			reverseComplement(stra, rL);
 		}
 		// cout << "idx: " << idx << "; rid: " << rid << endl;
 		// bool debug = false;
@@ -160,23 +162,15 @@ void findDupFun() {
 			// cout << "i: " << i << "; trid: " << trid << endl;
 			tdir = (ty>>1) & 1;
 			strcpy(strb, seq[trid].seq);
+
+			int trL = (trid < (max_rid>>1))?L1: L2;
 			if (tdir) {
-				reverseComplement(strb);
+				reverseComplement(strb, trL);
 			}
 			// if (debug) cout << strb << endl;
 	
-			if (strcmp(stra, strb) == 0) {
-				// cout << stra << endl;
-				// cout << rid << endl;
-				// cout << dir << endl;
-				// cout << strb << endl;
-				// cout << trid << endl;
-				// cout << tdir << endl;
-				// exit(0);
+			if (rL == trL && strcmp(stra, strb) == 0) {
 				isnextrnd[rid] = true;
-
-				// __sync_fetch_and_add(&tt, 1);
-
 				kv_push(uint32_t, reads[trid].crid, rid);
 				reads[rid].prid = trid;
 				reads[rid].isrc = tdir ^ dir;
@@ -197,7 +191,7 @@ void findDuplicate() {
 	rid_pthread = 1;
 	std::vector<thread> threadVec;
 	// nthreads = 1;
-	cout << "nthreads: " << nthreads << endl; 
+	// cout << "nthreads: " << nthreads << endl; 
 	for (int i = 0; i < nthreads; ++i) {
 		threadVec.push_back(std::thread(findDupFun));
 	}
@@ -208,8 +202,12 @@ void findDuplicate() {
 	// cout << "tt: " << tt << endl;
 }
 
-bool cmpdupid(const dup_t &a, const dup_t &b) {
-	return a.id < b.id;
+bool cmpdupid0(const dup_t &a, const dup_t &b) {
+	return a.id < b.id; // original order; small ID first
+}
+
+bool cmpdupid1(const dup_t &a, const dup_t &b) {
+	return a.id > b.id; // new order; 
 }
 
 void processDup() {
@@ -218,7 +216,185 @@ void processDup() {
 	// cout << "reads[4].prid: " << reads[4].prid << endl;
 	READS_t *tr, *ntr;
 	bool isrc;
-	if (isorder) {
+	// if (L1 == L2) {
+		if (isorder) {
+			for (uint32_t rid = 0; rid < max_rid; ++rid) {
+				tr = &reads[rid];
+				tr->dn = dn = 0;
+				// if (reads[rid].prid == rid && reads[rid].crid.n > 0) {
+				if (tr->prid == rid && tr->crid.n > 0) {
+					trid = rid;
+					while (reads[trid].crid.n > 0) {
+						++ dn;
+						trid = reads[trid].crid.a[0];
+						// if (trid == 4) {
+						// 	cout << "rid: " << rid << endl;
+						// 	cout << seq[trid].seq << endl;
+						// 	cout << seq[rid].seq << endl;
+						// 	exit(0);
+						// }
+					}
+
+					tr->dn = dn;
+					tr->dup = new dup_t[dn + 1];
+					trid = rid;
+					dn = 0;
+					while (reads[trid].crid.n > 0) {
+						prid = trid;
+						trid = reads[trid].crid.a[0];
+						
+						// tr->dup[dn ++] = dup_t(trid, reads[trid].isrc ^ reads[prid].isrc);
+						tr->dup[dn ++] = dup_t(trid, false);
+
+						kv_destroy(reads[prid].crid);
+						kv_init(reads[prid].crid);
+					}
+
+					tr->dup[dn] = dup_t(rid, false);
+
+					sort(tr->dup, tr->dup + dn + 1, cmpdupid0);
+
+					/*for (uint32_t i = 0; i < dn + 1; ++i) {
+						// if (tr->dup[i].id == 58344) cout << "HERERERERE!!!!!!2222222" << endl;
+						if (tr->dup[i].id == 464744) {
+							cout << "HERERERERE!!!!!!22222" << endl;
+							cout << "rid: " << rid << endl;
+							cout << seq[rid].seq << endl;
+							cout << "tr->isrc: " << tr->isrc << endl;
+							for (uint32_t w = 0; w < dn + 1; w++) {
+								cout << "w: " << w << endl;
+								cout << "tr->dup[w].id: " << tr->dup[w].id << endl;
+								cout << "tr->dup[w].isrc: " << tr->dup[w].isrc << endl;
+								cout << seq[tr->dup[w].id].seq << endl;
+							}
+							// exit(0);
+						}
+					}*/
+
+					if (rid != tr->dup[0].id) {
+						// move all to reads[rid].dup[0].id
+						ntr = &reads[tr->dup[0].id];
+						tr->dn = 0;
+						ntr->dn = dn;
+						ntr->dup = new dup_t[dn + 1];
+
+						ntr->dup[0] = dup_t(tr->dup[0].id, false);
+						// if (reads[rid].dup[0].isrc != reads[rid].isrc) {
+						// if (strcmp(seq[tr->dup[0].id].seq, seq[rid].seq) != 0) {
+						// if (tr->dup[0].id == 20371) cout << "HERERERERE!!!!!!2222222" << endl;
+							for (uint32_t i = 1; i < dn + 1; ++i) {
+								// if (tr->dup[i].id == 20371) cout << "HERERERERE!!!!!!2222222" << endl;
+								isrc = true;
+								if (strcmp(seq[tr->dup[0].id].seq, seq[tr->dup[i].id].seq) == 0) isrc = false;
+
+								ntr->dup[i] = dup_t(tr->dup[i].id, isrc);
+
+								/*if (tr->dup[i].id == 77186) {
+									cout << "HERERERERE!!!!!!22222" << endl;
+									cout << "rid: " << rid << endl;
+									cout << seq[rid].seq << endl;
+									cout << "tr->isrc: " << tr->isrc << endl;
+									for (uint32_t w = 0; w < dn + 1; w++) {
+										cout << "tr->dup[w].id: " << tr->dup[w].id << endl;
+										cout << "tr->dup[w].isrc: " << tr->dup[w].isrc << endl;
+										cout << seq[tr->dup[w].id].seq << endl;
+									}
+									exit(0);
+								}*/
+							}
+						/*} else {
+							for (uint32_t i = 0; i < dn + 1; ++i) {
+								if (tr->dup[i].id == 57185) {
+									cout << "HERERERERE!!!!!!33333333" << endl;
+									cout << "rid: " << rid << endl;
+									cout << seq[rid].seq << endl;
+									cout << "tr->isrc: " << tr->isrc << endl;
+									cout << "tr->dup[0].id: " << tr->dup[0].id << endl;
+									cout << "tr->dup[0].isrc: " << tr->dup[0].isrc << endl;
+									cout << seq[tr->dup[0].id].seq << endl;
+									exit(0);
+								}
+								ntr->dup[i] = tr->dup[i];
+							}
+						}*/
+						isnextrnd[tr->dup[0].id] = false;
+						ntr->prid = tr->dup[0].id;
+						isnextrnd[rid] = true;
+
+						kv_destroy(tr->crid);
+						delete[] tr->dup;
+
+						/*for (uint32_t i = 0; i < dn + 1; ++i) {
+						// if (tr->dup[i].id == 58344) cout << "HERERERERE!!!!!!2222222" << endl;
+						if (ntr->dup[i].id == 20371) {
+							cout << "HERERERERE!!!!!!22222------" << endl;
+							// cout << "rid: " << rid << endl;
+							// cout << seq[rid].seq << endl;
+							// cout << "tr->isrc: " << tr->isrc << endl;
+							for (uint32_t w = 0; w < dn + 1; w++) {
+								cout << "w: " << w << endl; 
+								cout << "tr->dup[w].id: " << ntr->dup[w].id << endl;
+								cout << "tr->dup[w].isrc: " << ntr->dup[w].isrc << endl;
+								cout << seq[ntr->dup[w].id].seq << endl;
+							}
+							exit(0);
+						}
+						}*/
+					} else {
+						for (uint32_t i = 1; i < dn + 1; ++i) {
+							isrc = true;
+							if (strcmp(seq[tr->dup[0].id].seq, seq[tr->dup[i].id].seq) == 0) isrc = false;
+
+							tr->dup[i].isrc = isrc;
+						}
+					}
+					// change to the smallest idx
+
+				}
+			}
+		} else {
+			for (uint32_t rid = 0; rid < max_rid; ++rid) {
+				dn = 0;
+				tr = &reads[rid];
+				// if (reads[rid].prid == rid && reads[rid].crid.n > 0) {
+				if (tr->prid == rid && tr->crid.n > 0) {
+					trid = rid;
+					while (reads[trid].crid.n > 0) {
+						++ dn;
+						trid = reads[trid].crid.a[0];
+						// if (trid == 4) {
+						// 	cout << "rid: " << rid << endl;
+						// 	cout << seq[trid].seq << endl;
+						// 	cout << seq[rid].seq << endl;
+						// 	exit(0);
+						// }
+					}
+
+					tr->dup = new dup_t[dn];
+					trid = rid;
+					dn = 0;
+					while (reads[trid].crid.n > 0) {
+						prid = trid;
+						trid = reads[trid].crid.a[0];
+						reads[trid].prid = trid;
+						// tr->dup[dn ++] = dup_t(trid, reads[trid].isrc);
+						tr->dup[dn ++] = dup_t(trid, false);
+						kv_destroy(reads[prid].crid);
+						kv_init(reads[prid].crid);
+					}
+					for (uint32_t i = 0; i < dn; ++i) {
+						isrc = true;
+						if (strcmp(seq[rid].seq, seq[tr->dup[i].id].seq) == 0) isrc = false;
+
+						tr->dup[i].isrc = isrc;
+					}
+				}
+				tr->dn = dn;
+			}
+		}
+	// } 
+	#ifdef false
+	else {
 		for (uint32_t rid = 0; rid < max_rid; ++rid) {
 			tr = &reads[rid];
 			tr->dn = dn = 0;
@@ -253,24 +429,10 @@ void processDup() {
 
 				tr->dup[dn] = dup_t(rid, false);
 
-				sort(tr->dup, tr->dup + dn + 1, cmpdupid);
-
-				/*for (uint32_t i = 0; i < dn + 1; ++i) {
-					// if (tr->dup[i].id == 58344) cout << "HERERERERE!!!!!!2222222" << endl;
-					if (tr->dup[i].id == 464744) {
-						cout << "HERERERERE!!!!!!22222" << endl;
-						cout << "rid: " << rid << endl;
-						cout << seq[rid].seq << endl;
-						cout << "tr->isrc: " << tr->isrc << endl;
-						for (uint32_t w = 0; w < dn + 1; w++) {
-							cout << "w: " << w << endl;
-							cout << "tr->dup[w].id: " << tr->dup[w].id << endl;
-							cout << "tr->dup[w].isrc: " << tr->dup[w].isrc << endl;
-							cout << seq[tr->dup[w].id].seq << endl;
-						}
-						// exit(0);
-					}
-				}*/
+				if (L1 > L2) {
+					sort(tr->dup, tr->dup + dn + 1, cmpdupid0);
+				} else
+					sort(tr->dup, tr->dup + dn + 1, cmpdupid1);
 
 				if (rid != tr->dup[0].id) {
 					// move all to reads[rid].dup[0].id
@@ -283,68 +445,27 @@ void processDup() {
 					// if (reads[rid].dup[0].isrc != reads[rid].isrc) {
 					// if (strcmp(seq[tr->dup[0].id].seq, seq[rid].seq) != 0) {
 					// if (tr->dup[0].id == 20371) cout << "HERERERERE!!!!!!2222222" << endl;
-						for (uint32_t i = 1; i < dn + 1; ++i) {
-							// if (tr->dup[i].id == 20371) cout << "HERERERERE!!!!!!2222222" << endl;
-							isrc = true;
-							if (strcmp(seq[tr->dup[0].id].seq, seq[tr->dup[i].id].seq) == 0) isrc = false;
+					for (uint32_t i = 1; i < dn + 1; ++i) {
+						// if (tr->dup[i].id == 20371) cout << "HERERERERE!!!!!!2222222" << endl;
+						isrc = true;
+						int l1 = (tr->dup[0].id < (max_rid>>1))?L1: L2;
+						int l2 = (tr->dup[i].id < (max_rid>>1))?L1: L2;
+						if (strncmp(seq[tr->dup[0].id].seq, seq[tr->dup[i].id].seq, min(l1, l2)) == 0) isrc = false;
 
-							ntr->dup[i] = dup_t(tr->dup[i].id, isrc);
-
-							/*if (tr->dup[i].id == 77186) {
-								cout << "HERERERERE!!!!!!22222" << endl;
-								cout << "rid: " << rid << endl;
-								cout << seq[rid].seq << endl;
-								cout << "tr->isrc: " << tr->isrc << endl;
-								for (uint32_t w = 0; w < dn + 1; w++) {
-									cout << "tr->dup[w].id: " << tr->dup[w].id << endl;
-									cout << "tr->dup[w].isrc: " << tr->dup[w].isrc << endl;
-									cout << seq[tr->dup[w].id].seq << endl;
-								}
-								exit(0);
-							}*/
-						}
-					/*} else {
-						for (uint32_t i = 0; i < dn + 1; ++i) {
-							if (tr->dup[i].id == 57185) {
-								cout << "HERERERERE!!!!!!33333333" << endl;
-								cout << "rid: " << rid << endl;
-								cout << seq[rid].seq << endl;
-								cout << "tr->isrc: " << tr->isrc << endl;
-								cout << "tr->dup[0].id: " << tr->dup[0].id << endl;
-								cout << "tr->dup[0].isrc: " << tr->dup[0].isrc << endl;
-								cout << seq[tr->dup[0].id].seq << endl;
-								exit(0);
-							}
-							ntr->dup[i] = tr->dup[i];
-						}
-					}*/
+						ntr->dup[i] = dup_t(tr->dup[i].id, isrc);
+					}
 					isnextrnd[tr->dup[0].id] = false;
 					ntr->prid = tr->dup[0].id;
 					isnextrnd[rid] = true;
 
 					kv_destroy(tr->crid);
 					delete[] tr->dup;
-
-					/*for (uint32_t i = 0; i < dn + 1; ++i) {
-					// if (tr->dup[i].id == 58344) cout << "HERERERERE!!!!!!2222222" << endl;
-					if (ntr->dup[i].id == 20371) {
-						cout << "HERERERERE!!!!!!22222------" << endl;
-						// cout << "rid: " << rid << endl;
-						// cout << seq[rid].seq << endl;
-						// cout << "tr->isrc: " << tr->isrc << endl;
-						for (uint32_t w = 0; w < dn + 1; w++) {
-							cout << "w: " << w << endl; 
-							cout << "tr->dup[w].id: " << ntr->dup[w].id << endl;
-							cout << "tr->dup[w].isrc: " << ntr->dup[w].isrc << endl;
-							cout << seq[ntr->dup[w].id].seq << endl;
-						}
-						exit(0);
-					}
-					}*/
 				} else {
 					for (uint32_t i = 1; i < dn + 1; ++i) {
 						isrc = true;
-						if (strcmp(seq[tr->dup[0].id].seq, seq[tr->dup[i].id].seq) == 0) isrc = false;
+						int l1 = (tr->dup[0].id < (max_rid>>1))?L1: L2;
+						int l2 = (tr->dup[i].id < (max_rid>>1))?L1: L2;
+						if (strncmp(seq[tr->dup[0].id].seq, seq[tr->dup[i].id].seq, min(l1, l2)) == 0) isrc = false;
 
 						tr->dup[i].isrc = isrc;
 					}
@@ -353,46 +474,8 @@ void processDup() {
 
 			}
 		}
-	} else {
-		for (uint32_t rid = 0; rid < max_rid; ++rid) {
-			dn = 0;
-			tr = &reads[rid];
-			// if (reads[rid].prid == rid && reads[rid].crid.n > 0) {
-			if (tr->prid == rid && tr->crid.n > 0) {
-				trid = rid;
-				while (reads[trid].crid.n > 0) {
-					++ dn;
-					trid = reads[trid].crid.a[0];
-					// if (trid == 4) {
-					// 	cout << "rid: " << rid << endl;
-					// 	cout << seq[trid].seq << endl;
-					// 	cout << seq[rid].seq << endl;
-					// 	exit(0);
-					// }
-				}
-
-				tr->dup = new dup_t[dn];
-				trid = rid;
-				dn = 0;
-				while (reads[trid].crid.n > 0) {
-					prid = trid;
-					trid = reads[trid].crid.a[0];
-					reads[trid].prid = trid;
-					// tr->dup[dn ++] = dup_t(trid, reads[trid].isrc);
-					tr->dup[dn ++] = dup_t(trid, false);
-					kv_destroy(reads[prid].crid);
-					kv_init(reads[prid].crid);
-				}
-				for (uint32_t i = 0; i < dn; ++i) {
-					isrc = true;
-					if (strcmp(seq[rid].seq, seq[tr->dup[i].id].seq) == 0) isrc = false;
-
-					tr->dup[i].isrc = isrc;
-				}
-			}
-			tr->dn = dn;
-		}
 	}
+	#endif
 }
 
 void removeDuplicate() {
@@ -433,37 +516,6 @@ void removeDuplicate() {
 	cout << "after obtainMiniDupIdx()\n";
 	// cout << "kmer: " << kmer << endl;
 
-	/*FILE *fp = fopen("seq.txt", "w");
-	char *str = (char*)alloca((L + 1) * sizeof(char));
-	bool *printed = new bool[max_rid];
-	memset(printed, 0, sizeof(bool) * max_rid);
-
-	cout << "minisize: " << minisize << endl;
-	uint64_t y;
-	for (uint32_t i = 0; i < minisize; ++i) {
-		y = mini[i];
-		strcpy(str, seq[y >> 32].seq);
-		if ((y>>1) & 1) {
-			reverseComplement(str);
-		}
-		printed[y>>32] = true;
-		fprintf(fp, "%s %u %u %d\n", str, y>>32, (uint32_t)y >> 2, y & 1);
-		// fprintf(fp, "%u %u\n", y>>32, (uint32_t)y >> 2);
-		// fprintf(fp, "%lu\n", y);
-		// fprintf(fp, "%s\n", str);
-		// fprintf(fp, "%s\n", seq[y >> 32].seq);
-		// fprintf(fp, "---\n");
-	}
-	fclose(fp);
-
-	FILE *fpp = fopen("remaning.txt", "w");
-	for (uint32_t i = 0; i < max_rid; ++i) {
-		if (!printed[i]) {
-			fprintf(fpp, "%s\n", seq[i].seq);
-		}
-	}
-	fclose(fpp);*/
-
 	for (int i = 0; i < (1 << bsize); ++i) {
 		kv_destroy(B[i]);
 	}
@@ -471,59 +523,11 @@ void removeDuplicate() {
 	delete[] min128vec; min128vec = NULL;
 	delete[] fmm; fmm = NULL;
 
-		//
-	// clearDuplicate();
-
-	// cout << "Time of initialTreeConstuction kmer =" << kmer << " = " << stopwatch.stop() << std::endl;
-	// tstopwatch.resume();
-
-	// {	
-	// uint32_t cnt = 0;
-	// for (uint32_t rid = 0; rid < max_rid; ++rid) {
-	// 	if (!isnextrnd[rid]) {
-	// 		++ cnt;
-	// 	}
-	// }
-	// cout << "isnextrnd: " << cnt << endl;
-	// }
+	cout << "before findDuplicate()" << endl;
 	findDuplicate();
-	// {	
-	// uint32_t cnt = 0;
-	// for (uint32_t rid = 0; rid < max_rid; ++rid) {
-	// 	if (!isnextrnd[rid]) {
-	// 		++ cnt;
-	// 	}
-	// }
-	// cout << "isnextrnd: " << cnt << endl;
-	// }
+	cout << "after findDuplicate()" << endl;
 
 	processDup();
-
-	/*FILE *fp = fopen("dupnum.txt", "w");
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (!isnextrnd[rid] && reads[rid].dn > 0) {
-			fprintf(fp, "%d\n", reads[rid].dn);
-		}
-	}
-	fclose(fp);
-	exit(0);*/
-	// FILE *fp = fopen("SRR870667_2.noN.noDup.fastq", "w");
-	/*FILE *fp = fopen("ERP001775_1.noDup.fastq", "w");
-	uint32_t a = 0;
-	for (uint32_t rid = 0; rid < max_rid; ++rid) {
-		if (!isnextrnd[rid]) {
-			// if (reads[rid].dn > 0) 
-			// fprintf(fp, "%s %u\n", seq[rid].seq, reads[rid].dn);
-			// a += reads[rid].dn;
-			// fprintf(fp, "%s\n", seq[rid].seq);
-			fprintf(fp, "@ERP001775_1\n");
-			fprintf(fp, "%s\n", seq[rid].seq);
-			fprintf(fp, "+\n");
-			fprintf(fp, "%s\n", seq[rid].seq);
-		}
-	}
-	fclose(fp);
-	exit(0);*/
 	// cout << a << endl;
 	cout << "Time of removeDuplicate(): " << stopwatch.stop() << std::endl;
 	stopwatch.resume();

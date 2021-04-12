@@ -2,7 +2,7 @@
 
 void calc128MinimizersDupFun() { // before calling this method, MUST set rid_pthread = 0
 	mm128_t minimizer;
-	int mask = (1<<bsize) - 1, bucketidx, ncnt;
+	int mask = (1<<bsize) - 1, bucketidx, ncnt, rL;
 	READS_t *tr;
 	while (1) {
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
@@ -12,14 +12,20 @@ void calc128MinimizersDupFun() { // before calling this method, MUST set rid_pth
 		tr->prid = rid;
 		kv_init(tr->crid);
 
-		reverseReads(seq[rid].seq);
+		// if (rid == 106892) {
+				// cout << rid << " - " << minimizer.x << endl;
+			// cout << seq[rid].seq << endl;
+		// }
 
-		min128sketch(seq[rid].seq, L, kmer, rid, &minimizer);
+		rL = (rid < (max_rid >> 1))? L1: L2;
+		reverseReads(seq[rid].seq, rL);
 
-		// if (rid == 1634593 || rid == 4) {
-		// 		cout << rid << " - " << minimizer.x << endl;
-		// 		cout << seq[rid].seq << endl;
-		// 	}
+		min128sketch(seq[rid].seq, rL, kmer, rid, &minimizer);
+
+		// if (rid == 106892) {
+				// cout << rid << " - " << minimizer.x << endl;
+			// cout << seq[rid].seq << endl;
+		// }
 			
 		bucketidx = minimizer.x & mask;
 		mm128_v *p = &B[bucketidx];
@@ -31,7 +37,7 @@ void calc128MinimizersDupFun() { // before calling this method, MUST set rid_pth
 
 void calc192MinimizersDupFun() { // before calling this method, MUST set rid_pthread = 0
 	mm192_t minimizer;
-	int mask = (1<<bsize) - 1, bucketidx, ncnt;
+	int mask = (1<<bsize) - 1, bucketidx, ncnt, rL;
 	READS_t *tr;
 	while (1) {
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
@@ -43,9 +49,10 @@ void calc192MinimizersDupFun() { // before calling this method, MUST set rid_pth
 		tr->prid = rid;		
 		kv_init(tr->crid);
 
-		reverseReads(seq[rid].seq);
+		rL = (rid < (max_rid >> 1))? L1: L2;
+		reverseReads(seq[rid].seq, rL);
 
-		min192sketch(seq[rid].seq, L, kmer, rid, &minimizer);
+		min192sketch(seq[rid].seq, rL, kmer, rid, &minimizer);
 		bucketidx = ((minimizer.x.x & mask) + (minimizer.x.y & mask)) & mask;
 		mm192_v *p = &BL[bucketidx];
 
@@ -55,7 +62,7 @@ void calc192MinimizersDupFun() { // before calling this method, MUST set rid_pth
 	}
 }
 
-void calcMinimizersDup() {
+void calcMinimizersDup() { //[left, right)
 	// bmtx = new mutex[1 << bsize];
 	rid_pthread = 0;
 	std::vector<thread> threadVec;
@@ -78,13 +85,14 @@ void calcMinimizersDup() {
 ///
 void calc128MinimizersFun() { // before calling this method, MUST set rid_pthread = 0
 	mm128_t minimizer;
-	int mask = (1<<bsize) - 1, bucketidx;
+	int mask = (1<<bsize) - 1, bucketidx, rL;
 	while (1) {
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
 		if (rid >= max_rid) break;
 		
 		if (!isnextrnd[rid]) {
-			min128sketch(seq[rid].seq, L, kmer, rid, &minimizer);
+			rL = (rid < (max_rid>>1))? L1: L2;
+			min128sketch(seq[rid].seq, rL, kmer, rid, &minimizer);
 			bucketidx = minimizer.x & mask;
 			mm128_v *p = &B[bucketidx];
 			bmtx[bucketidx].lock();
@@ -96,14 +104,15 @@ void calc128MinimizersFun() { // before calling this method, MUST set rid_pthrea
 
 void calc192MinimizersFun() { // before calling this method, MUST set rid_pthread = 0
 	mm192_t minimizer;
-	int mask = (1<<bsize) - 1, bucketidx, ncnt;
+	int mask = (1<<bsize) - 1, bucketidx, ncnt, rL;
 	while (1) {
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
 		if (rid >= max_rid) break;
 
 		if (!isnextrnd[rid]) {
 			// __sync_fetch_and_add(&minicount, 1);
-			min192sketch(seq[rid].seq, L, kmer, rid, &minimizer);
+			rL = (rid < (max_rid>>1))? L1: L2;
+			min192sketch(seq[rid].seq, rL, kmer, rid, &minimizer);
 			bucketidx = ((minimizer.x.x & mask) + (minimizer.x.y & mask)) & mask;
 			mm192_v *p = &BL[bucketidx];
 			bmtx[bucketidx].lock(); // the lock can be remove by first counting the number of this bucketidx
@@ -136,7 +145,7 @@ void calcMinimizers() {
 ///
 void calc128MaximizersFun() { // before calling this method, MUST set rid_pthread = 0
 	mm128_t maximizer;
-	int mask = (1<<bsize) - 1, bucketidx, ncnt;
+	int mask = (1<<bsize) - 1, bucketidx, ncnt, rL;
 	while (1) {
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
 		if (rid >= max_rid) break;
@@ -144,7 +153,8 @@ void calc128MaximizersFun() { // before calling this method, MUST set rid_pthrea
 		
 		if (!isnextrnd[rid]) {
 			// __sync_fetch_and_add(&minicount, 1);
-			max128sketch(seq[rid].seq, L, kmer, rid, &maximizer);
+			rL = (rid < (max_rid>>1))? L1: L2;
+			max128sketch(seq[rid].seq, rL, kmer, rid, &maximizer);
 			bucketidx = maximizer.x & mask;
 			mm128_v *p = &B[bucketidx];
 			bmtx[bucketidx].lock();
@@ -156,14 +166,15 @@ void calc128MaximizersFun() { // before calling this method, MUST set rid_pthrea
 
 void calc192MaximizersFun() { // before calling this method, MUST set rid_pthread = 0
 	mm192_t maximizer;
-	int mask = (1<<bsize) - 1, bucketidx, ncnt;
+	int mask = (1<<bsize) - 1, bucketidx, ncnt, rL;
 	while (1) {
 		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
 		if (rid >= max_rid) break;
 
 		if (!isnextrnd[rid]) {
 			// __sync_fetch_and_add(&minicount, 1);
-			max192sketch(seq[rid].seq, L, kmer, rid, &maximizer);
+			rL = (rid < (max_rid>>1))? L1: L2;
+			max192sketch(seq[rid].seq, rL, kmer, rid, &maximizer);
 			bucketidx = ((maximizer.x.x & mask) + (maximizer.x.y & mask)) & mask;
 			mm192_v *p = &BL[bucketidx];
 			bmtx[bucketidx].lock(); // the lock can be remove by first counting the number of this bucketidx

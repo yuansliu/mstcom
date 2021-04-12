@@ -171,7 +171,7 @@ extern char complement[256];
 extern Edge_v edges;
 extern int nthreads;
 extern int max_dif_thr;
-extern int L;
+extern int L, L1, L2;
 extern int nk;
 extern size_t RN;
 extern uint32_t max_rid;
@@ -224,7 +224,8 @@ typedef struct dup_t {
 	dup_t(uint32_t _id, bool _isrc): id(_id), isrc(_isrc) {}
 } dup_t;
 
-bool cmpdupid(const dup_t &a, const dup_t &b);
+bool cmpdupid0(const dup_t &a, const dup_t &b);
+bool cmpdupid1(const dup_t &a, const dup_t &b);
 
 struct READS_t {
 	uint32_t prid; //reads id of parent
@@ -397,7 +398,8 @@ typedef struct threadShiftEdges_t {
 
 extern threadShiftEdges_t *threadshifteds;
 
-void reRootNode(const size_t &_rid);
+void reRootNode(const uint32_t &_rid);
+void reRootNodeL1L2(const uint32_t &_rid);
 void countTree();
 // char complement[256];
 // void mm_sketch(const char *str, int len, int k, uint32_t rid, mm128_t *p);
@@ -408,19 +410,20 @@ void radix_sort_edge(Edge_t *beg, Edge_t *end);
 void radix_sort_mstedge(MstEdge_t *beg, MstEdge_t *end);
 
 // util
-void reverseComplement(char* start);
-void reverseReads(char* start);
+void reverseComplement(char* start, int L);
+void reverseReads(char* start, int L);
 void getPars(int argc, char* argv[]);
 void show_usage(const char* prog);
 
 // for reads input 
 bool getReads(char const *fn);
 bool getRightReads(char const *fn);
+bool getRightReads(char const *fn, int LL);
 int getReadsLength(char const *fn);
 
 // for reads string encode
-int16_t diffstrlen(char *parent, char *child, const int16_t &b);
-int16_t diffstrlen(char *parent, char *_child, const int16_t &b, const bool &isrc);
+// int16_t diffstrlen(char *parent, char *child, const int16_t &b);
+// int16_t diffstrlen(char *parent, char *_child, const int16_t &b, const bool &isrc);
 void encode(char *parent, char *child, const int16_t &_shift, char *en_str);
 uint32_t encode(uint32_t rid, char *en_str);
 int encode_v4(uint32_t rid, char *en_str);
@@ -571,7 +574,7 @@ inline void min128sketch(const char *str, int len, int k, uint32_t rid, mm128_t 
 
 	char *rcstr = (char*)alloca((len + 3) * sizeof(char));
 	strcpy(rcstr, str);
-	reverseComplement(rcstr);
+	reverseComplement(rcstr, len);
 
 	for (i = 0, l = 0; i < len; i++) {
 		int c = seq_nt4_table[(uint8_t)rcstr[i]];
@@ -615,7 +618,7 @@ inline void min128sketch(const char *str, int len, int k, uint32_t rid, mm128_t 
 
 	char *rcstr = (char*)alloca((len + 3) * sizeof(char));
 	strcpy(rcstr, str);
-	reverseComplement(rcstr);
+	reverseComplement(rcstr, len);
 
 	for (i = 0, l = 0; i < len; i++) {
 		int c = seq_nt4_table[(uint8_t)rcstr[i]];
@@ -662,7 +665,7 @@ inline void min192sketch(const char *str, int len, int k, uint32_t rid, mm192_t 
 
 	char *rcstr = (char*)alloca((len + 3) * sizeof(char));
 	strcpy(rcstr, str);
-	reverseComplement(rcstr);
+	reverseComplement(rcstr, len);
 
 	for (i = 0, l = 0; i < len; i++) {
 		int c = seq_nt4_table[(uint8_t)rcstr[i]];
@@ -707,7 +710,7 @@ inline void max128sketch(const char *str, int len, int k, uint32_t rid, mm128_t 
 
 	char *rcstr = (char*)alloca((len + 3) * sizeof(char));
 	strcpy(rcstr, str);
-	reverseComplement(rcstr);
+	reverseComplement(rcstr, len);
 
 	for (i = 0, l = 0; i < len; i++) {
 		int c = seq_nt4_table[(uint8_t)rcstr[i]];
@@ -753,7 +756,7 @@ inline void max192sketch(const char *str, int len, int k, uint32_t rid, mm192_t 
 
 	char *rcstr = (char*)alloca((len + 3) * sizeof(char));
 	strcpy(rcstr, str);
-	reverseComplement(rcstr);
+	reverseComplement(rcstr, len);
 
 	for (i = 0, l = 0; i < len; i++) {
 		int c = seq_nt4_table[(uint8_t)rcstr[i]];

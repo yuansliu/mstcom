@@ -155,7 +155,7 @@ void getPars(int argc, char* argv[]) {
 }
 
 // inline 
-void reverseComplement(char* start) {
+void reverseComplement(char* start, int L) {
 	char* left = start; // sequence starts
 	char* right = start + L - 1;
 	while (right > left) {
@@ -169,7 +169,7 @@ void reverseComplement(char* start) {
 		*left = complement[(uint8_t)*left];
 }
 
-void reverseReads(char* start) {
+void reverseReads(char* start, int L) {
 	char* left = start; // sequence starts
 	char* right = start + L - 1;
 	while (right > left) {

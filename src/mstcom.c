@@ -3,7 +3,7 @@ using namespace std;
 
 int nthreads;
 int max_dif_thr;
-int L;
+int L, L1, L2; // L1, L2 used for PE data having different lengths of two ends
 int nk;
 size_t RN;
 uint32_t max_rid;
@@ -51,7 +51,9 @@ CStopWatch stopwatch;
 
 uint32_t encode(uint32_t rid, char *en_str);
 uint32_t getRoot(uint32_t rid);
-inline void reRootNode(const size_t &_rid, const size_t &root);
+// inline 
+// void reRootNode(const size_t &_rid, const size_t &root);
+// void reRootNodeL1L2(const size_t &_rid, const size_t &root);
 // inline void reRootNode(const size_t &_rid);
 
 inline void init() {
@@ -466,8 +468,9 @@ void mstConstruction() {
 	uint32_t rid, prid, aroot, broot;
 	size_t edgesidx = 0;
 
-	char *stra = (char*)alloca((L + 1) * sizeof(char));
-	char *encstr = (char*)alloca(((L<<2) + 1) * sizeof(char));
+	int maxL = max(L1, L2);
+	char *stra = (char*)alloca((maxL + 1) * sizeof(char));
+	char *encstr = (char*)alloca(((maxL<<2) + 1) * sizeof(char));
 
 	rootarr = new uint32_t[max_rid];
 
@@ -589,6 +592,144 @@ void mstConstruction() {
 	cout << "end mstConstruction() ...\n";
 }
 
+void mstConstructionL1L2() {
+	CStopWatch tstopwatch;
+	tstopwatch.start();
+
+	uint32_t rid, prid, aroot, broot;
+	size_t edgesidx = 0;
+
+	int maxL = max(L1, L2);
+	char *stra = (char*)alloca((maxL + 1) * sizeof(char));
+	char *encstr = (char*)alloca(((maxL<<2) + 1) * sizeof(char));
+
+	rootarr = new uint32_t[max_rid];
+
+	for (uint32_t i = 0; i < max_rid; ++i) {
+		rootarr[i] = i;
+	}
+	cout << "begin mstConstruction() ..." << endl;
+
+	MstEdge_v mstedges;
+	kv_init(mstedges);
+
+	// process dif == 0;
+	while (edgesidx < edges.n && edges.a[edgesidx].dif == 0) {
+		rid = edges.a[edgesidx].rid;
+		prid = edges.a[edgesidx].prid;
+		if (getRoot(rid) != getRoot(prid)) { //these two reads not in a tree
+			aroot = getRoot(rid);
+			broot = getRoot(prid);
+			rootarr[aroot] = broot;
+
+			MstEdge_t teds(rid, prid, 0, edges.a[edgesidx].isrc);
+			kv_push(MstEdge_t, mstedges, teds);
+
+			duplicateEdges.push_back(make_pair(rid, prid));
+		}
+		++ edgesidx;
+	}
+	kv_destroy(edges);
+
+	for (int dif = 1; dif <= max_dif_thr; ++ dif) {
+		// if (false) // for debug
+		// for shift edges
+		for (int threadid = 0; threadid < nthreads; ++threadid) {
+			shiftEdgesFile_t *edf = &threadshifteds[threadid].a[dif - 1];
+			// edf->reopen(maxedges);
+			edf->reopen();
+
+			while (edf->get()) {
+			// bool getres;
+			// while (getres = edf->get()) {
+				// cout << "edf->fn: " << edf->fn << endl;
+				// cout << "getres: " << getres << endl;
+				// cout << "edf->n: " << edf->n << endl;
+				// cout << "edf->m: " << edf->m << endl;
+
+				for (uint32_t i = 0; i < edf->n; ++i) {
+					uint64_t v = edf->a[i];
+					rid = v >> 32;
+					prid = (uint32_t) v;
+					int16_t shiftisrc = edf->shift[i];
+
+					if (getRoot(rid) != getRoot(prid)) { //these two reads not in a tree
+						MstEdge_t teds(rid, prid, shiftisrc >> 1, shiftisrc & 1);
+						kv_push(MstEdge_t, mstedges, teds);
+						//
+						aroot = getRoot(rid);
+						broot = getRoot(prid);
+						rootarr[aroot] = broot;
+					}
+				}
+			}
+			// cout << "before clear\n";
+			edf->clear();
+		}
+	}
+	cout << endl;
+	for (int threadid = 0; threadid < nthreads; ++threadid) {
+		threadshifteds[threadid].removefd();
+		// threadeds[threadid].removefd();
+	}
+	// edgfolder = folder + "edges";
+	// string cmd = "rm -rf " + folder + "edges " + folder + "shiftedges " + folder + "shiftedgesbysubstridx";
+	// string cmd = "rm -rf " + hammingedgfolder + " " + shiftedgfolder ;
+	string cmd = "rm -rf " + shiftedgfolder ;
+	system(cmd.c_str());
+
+	cout << "Time of edges of mstConstruction() = " << tstopwatch.stop() << std::endl;
+	tstopwatch.resume();
+
+	// radix_sort_mstedge(mstedges.a, mstedges.a + mstedges.n);
+
+	bool *v = new bool[max_rid], isrc;
+	memset(v, false, sizeof(bool) * max_rid);
+	int16_t shift;
+	// FILE *fp = fopen("1.txt", "w");
+	cout << "Number of edges in MST: " << mstedges.n << endl;
+	for (size_t i = 0; i < mstedges.n; ++i) {
+		rid = mstedges.a[i].rid;
+		prid = mstedges.a[i].prid;
+		isrc = mstedges.a[i].isrc;
+		shift = mstedges.a[i].shift;
+		// fprintf(fp, "%u %u\n", prid, rid);
+
+		if (v[rid] && !v[prid]) {
+			rid = prid;
+			prid = mstedges.a[i].rid;
+
+			if (!isrc) {
+				shift = 0 - shift; 
+			} else {
+				// int pl = (prid > (max_rid>>1))?L1:L2;
+				// int cl = (rid > (max_rid>>1))?L1:L2;
+				// int tshift = (cl - (pl - abs(shift)));
+				// if (shift < 0) shift = 0 - tshift;
+			}
+		} 
+		else 
+		if (v[rid] && v[prid]) {
+			// cout << "prid: " << prid << "; " << "rid: " << rid << endl;
+			reRootNode(rid);
+			// reRootNodeL1L2(rid);
+		}
+		reads[rid].prid = prid;
+		reads[rid].shift = shift;
+		reads[rid].isrc = isrc;
+		kv_push(uint32_t, reads[prid].crid, rid);
+		v[rid] = v[prid] = true;
+	}
+	delete[] v;
+	delete[] rootarr;
+	cout << "Time of mstConstruction() = " << tstopwatch.stop() << std::endl;
+	// fclose(fp);
+
+	removeDuplicateEdges();
+
+	cout << "end mstConstruction() ...\n";
+}
+ 
 bool cmp2(const ROOTNODE_t &a, const ROOTNODE_t &b) {
 	return a.nodecnt > b.nodecnt;
 }
@@ -607,7 +748,9 @@ void removeChild(size_t prid, size_t rid) {
 	-- reads[prid].crid.n; //resize(cridsize - 1);
 }
  
-inline void reRootNode(const uint32_t &_rid, const uint32_t &root) { // set rid as root node
+// inline 
+#ifdef false
+void reRootNode(const uint32_t &_rid, const uint32_t &root) { // set rid as root node
 	if (reads[_rid].prid == _rid) return; // rid is root node; do nothing
 	// fprintf(stderr, "reRootNode()...\n");
 	// fprintf(stderr, "%lu %lu\n", _rid, reads[_rid].prid);
@@ -651,6 +794,56 @@ inline void reRootNode(const uint32_t &_rid, const uint32_t &root) { // set rid 
 	reads[_rid].shift = 0;
 }
 
+void reRootNodeL1L2(const uint32_t &_rid, const uint32_t &root) { // set rid as root node
+	if (reads[_rid].prid == _rid) return; // rid is root node; do nothing
+	// fprintf(stderr, "reRootNode()...\n");
+	// fprintf(stderr, "%lu %lu\n", _rid, reads[_rid].prid);
+
+	bool debug = false;
+	// if (_rid == 49755) debug = true;
+	if (debug) fprintf(stderr, "------\n");
+
+	uint32_t rid = _rid;
+	uint32_t oriprid = reads[rid].prid, tprid;
+	bool isrc = reads[rid].isrc, tisrc;
+	int16_t shift = reads[rid].shift, tshift;
+	while (true) {
+		if (debug) fprintf(stderr, "oriprid: %lu; rid: %lu\n", oriprid, rid);
+		removeChild(oriprid, rid);
+		tprid = reads[oriprid].prid;
+		tisrc = reads[oriprid].isrc;
+		tshift = reads[oriprid].shift;
+		
+		reads[oriprid].prid = rid; // reverse the edge
+		if (isrc) {
+			int pl = (oriprid > (max_rid>>1))?L1:L2;
+			int cl = (rid > (max_rid>>1))?L1:L2;
+			int tshift = (cl - (pl - abs(shift)));
+			if (shift < 0) shift = 0 - tshift;
+
+			reads[oriprid].shift = shift;
+		} else {
+			reads[oriprid].shift = - shift;
+		}
+		reads[oriprid].isrc = isrc;
+		// reads[rid].crid.push_back(oriprid);
+		kv_push(uint32_t, reads[rid].crid, oriprid);
+
+		rid = oriprid;
+		oriprid = tprid;
+		
+		if (oriprid == rid) break;
+
+		isrc = tisrc;
+		shift = tshift;
+	}
+	uint32_t noderid;
+	reads[_rid].prid = _rid;
+	reads[_rid].isrc = 0;
+	reads[_rid].shift = 0;
+}
+#endif
+
 bool edgecmp(Edge_t a, Edge_t b) {
 	return a.dif < b.dif;
 }
@@ -670,6 +863,48 @@ void reRootNode(const uint32_t &_rid) { // set rid as root node
 		
 		reads[oriprid].prid = rid; // reverse the edge
 		if (isrc) {
+			reads[oriprid].shift = shift;
+		} else {
+			reads[oriprid].shift = - shift;
+		}
+		reads[oriprid].isrc = isrc;
+		// reads[rid].crid.push_back(oriprid);
+		kv_push(uint32_t, reads[rid].crid, oriprid);
+
+		rid = oriprid;
+		oriprid = tprid;
+		
+		if (oriprid == rid) break;
+
+		isrc = tisrc;
+		shift = tshift;
+	}
+	uint32_t noderid;
+	reads[_rid].prid = _rid;
+	reads[_rid].isrc = 0;
+	reads[_rid].shift = 0;
+}
+
+void reRootNodeL1L2(const uint32_t &_rid) { // set rid as root node
+	if (reads[_rid].prid == _rid) return; // rid is root node; do nothing
+
+	uint32_t rid = _rid;
+	uint32_t oriprid = reads[rid].prid, tprid;
+	bool isrc = reads[rid].isrc, tisrc;
+	int16_t shift = reads[rid].shift, tshift;
+	while (true) {
+		removeChild(oriprid, rid);
+		tprid = reads[oriprid].prid;
+		tisrc = reads[oriprid].isrc;
+		tshift = reads[oriprid].shift;
+		
+		reads[oriprid].prid = rid; // reverse the edge
+		if (isrc) {
+			// int pl = (oriprid > (max_rid>>1))?L1:L2;
+			// int cl = (rid > (max_rid>>1))?L1:L2;
+			// int tshift = (cl - (pl - abs(shift)));
+			// if (shift < 0) shift = 0 - tshift;
+
 			reads[oriprid].shift = shift;
 		} else {
 			reads[oriprid].shift = - shift;
@@ -732,7 +967,7 @@ uint32_t encode_(uint32_t rid, char *en_str) {
 		char *rcstr = (char*)alloca((L + 3) * sizeof(char));
 		strncpy(rcstr, seq[rid].seq, L);
 		rcstr[L] = '\0';
-		reverseComplement(rcstr);
+		reverseComplement(rcstr, L);
 		encode(seq[reads[rid].prid].seq, rcstr, reads[rid].shift, en_str);
 	} else {
 		encode(seq[reads[rid].prid].seq, seq[rid].seq, reads[rid].shift, en_str);
@@ -750,7 +985,7 @@ uint32_t encode(uint32_t rid, char *en_str) {
 		char *rcstr = (char*)alloca((L + 3) * sizeof(char));
 		strncpy(rcstr, seq[rid].seq, L);
 		rcstr[L] = '\0';
-		reverseComplement(rcstr);
+		reverseComplement(rcstr, L);
 		encode(seq[reads[rid].prid].seq, rcstr, reads[rid].shift, en_str);
 	} else {
 		encode(seq[reads[rid].prid].seq, seq[rid].seq, reads[rid].shift, en_str);
@@ -845,7 +1080,7 @@ int encode_v3(uint32_t rid, char *en_str) {
 		char *rcstr = (char*)alloca((L + 3) * sizeof(char));
 		strncpy(rcstr, seq[rid].seq, L);
 		rcstr[L] = '\0';
-		reverseComplement(rcstr);
+		reverseComplement(rcstr, L);
 		mismatchno = encode_v3(seq[reads[rid].prid].seq, rcstr, reads[rid].shift, en_str);
 	} else {
 		mismatchno = encode_v3(seq[reads[rid].prid].seq, seq[rid].seq, reads[rid].shift, en_str);
@@ -854,7 +1089,7 @@ int encode_v3(uint32_t rid, char *en_str) {
 }
 
 void encodeReadsFun() {
-	char *encstr = (char*)alloca((L + 1) * sizeof(char));
+	char *encstr = (char*)alloca((max(L1, L2) + 5) * sizeof(char));
 	uint32_t noderid;
 
 	while (1) {
@@ -877,7 +1112,7 @@ void encodeReadsFun() {
 			for (i = v.n - 1; i >= 0; --i) {
 				noderid = v.a[i];
 				int encstrlen =	encode_v3(noderid, encstr);
-				if (encstrlen < L) {
+				if (encstrlen < min(L1, L2)) {
 					free(seq[noderid].seq);
 					seq[noderid].seq = strdup(encstr);
 				}
@@ -898,18 +1133,509 @@ void encodeReadsFun() {
 	}
 }
 
+// L1 == L2
+int encode_v3(char *parent, int pl, char *child, int cl, const int16_t &_shift, char *en_str) { //str1 is the short one string
+	char *int_str = (char*)alloca(20 * sizeof(char));
+	int16_t shift = _shift;
+	int mismatchno = 0;
+	// cout << "333"<< endl;
+	// bool debug = false;
+	// if (debugcnt >= mindebugcnt && debugcnt < mindebugcnt + 10) {
+	// 	debug = true;
+	// }
+	// ++debugcnt;
+	// if (strcmp(child, "CATCTNNNNAAGAAAATTGCTGTTATTTACTTACTATTATCATCCATTTTCCTCCAACAAAAGAAAAGAGAGAAAAGGAGAGAATAAAAAAGAGAGAATCTC") == 0) {
+	// 	debug = true;
+	// }
+	int en_str_len = 0;
+	int eq_char_num = 0;
+	// cout << "shift: " << shift << endl;
+	if (shift > 0) {
+		// case shift >= 0
+		//    AATTGCATGC parent
+		//      TTGCATGCGA
+		int taillen = cl - (pl - shift);
+
+		for (int i = taillen; i >= 1; --i) {
+			en_str[en_str_len++] = child[cl - i];
+		}
+		// cout << parent << endl;
+		// cout << child << endl;
+		// cout << shift << endl;
+		int i, j;
+		for (i = shift, j = 0; i < pl && j < cl; ++i, ++j) {
+			if (parent[i] != child[j]) {
+				++ mismatchno;
+
+				sprintf(int_str, "%d", eq_char_num);
+				for (char *tk = int_str; *tk != '\0'; ++tk) {
+					en_str[en_str_len++] = *tk;
+				}
+				eq_char_num = 0;
+				en_str[en_str_len++] = child[j]; 
+			} else ++ eq_char_num;
+		}
+		en_str[en_str_len] = '\0';
+		// cout << en_str << endl;
+		// exit(0);
+	} else {
+		// cast: shift < 0
+		//       AATTGCATGC parent
+		//    TCGAATTGCA
+		int i, j;
+		shift = 0 - shift;
+		for (j = 0; j < shift; ++j) {
+			en_str[en_str_len++] = child[j];
+		}
+		// cout << "22222----" << endl;
+		// cout << parent << endl;
+		// cout << child << endl;
+		// cout << shift << endl;
+		for (i = 0, j = shift; i < pl && j < cl; ++i, ++j) {
+			if (parent[i] != child[j]) {
+				++ mismatchno;
+
+				sprintf(int_str, "%d", eq_char_num);
+				for (char *tk = int_str; *tk != '\0'; ++tk) {
+					en_str[en_str_len++] = *tk;
+				}
+				eq_char_num = 0;
+				en_str[en_str_len++] = child[j]; 
+			} else ++ eq_char_num;	
+		}
+		en_str[en_str_len] = '\0';
+		// cout << en_str << endl;
+		// exit(0);
+ 	}
+ 	// if (debug) exit(0);
+	// cout << "444"<< endl;
+ 	// if (debug) {
+ 	// 	cout << "parent: " << parent << endl;
+ 	// 	cout << "child: " << child << endl;
+ 	// 	cout << "shift: " << + _shift << endl;
+ 	// 	cout << en_str << endl;
+ 	// 	exit(0);
+ 	// }
+
+ 	return mismatchno;
+}
+
+// L1 != L2
+int encode_v3L1L2(char *parent, int pl, char *child, int cl, int16_t &_shift, char *resen_str) { //str1 is the short one string
+	char *int_str = (char*)alloca(20 * sizeof(char));
+	int16_t shift = _shift >= 0?_shift:(0 - _shift), fshift = _shift;
+	int fmismatchno = pl;
+	// bool debug = false;
+	// if (strcmp(child, "NTGTTGAGTAGGGAAGTAGGTGATTACCTAGAGCATTAAGCTTGCTNAGNNNNNNNNNCTTGC") == 0) {
+	// 	debug = true;
+	// }
+	// if (debug) {
+	// 	cout << "shift: " << shift << endl;
+	// 	cout << "parent: " << parent << endl;
+	// 	cout << "child: " << child << endl;
+	// }
+	int resen_str_len = max(L1, L2);
+	char *en_str = (char*)alloca((1 << 12) * sizeof(char));
+	// cout << "shift: " << shift << endl;
+	{	
+		shift = _shift >= 0?_shift:(0 - _shift);
+		// case 1:
+		{
+			// case shift >= 0
+			//    AATTGCATGC parent
+			//      TTGCATGCGAA
+			int en_str_len = 0;
+			int eq_char_num = 0;
+			int mismatchno = 0;
+			int taillen = cl - (pl - shift);
+			if (taillen > 0) {
+				for (int i = taillen; i >= 1; --i) {
+					en_str[en_str_len++] = child[cl - i];
+				}
+				int i, j;
+				for (i = shift, j = 0; i < pl && j < cl; ++i, ++j) {
+					if (parent[i] != child[j]) {
+						++ mismatchno;
+
+						sprintf(int_str, "%d", eq_char_num);
+						for (char *tk = int_str; *tk != '\0'; ++tk) {
+							en_str[en_str_len++] = *tk;
+						}
+						eq_char_num = 0;
+						en_str[en_str_len++] = child[j]; 
+					} else ++ eq_char_num;
+				}
+				en_str[en_str_len] = '\0';
+				// if (debug) cout << "en_str_len: " << en_str_len << endl;
+				// cout << en_str << endl;
+				if (en_str_len < max_dif_thr && en_str_len < resen_str_len) {
+					// if (debug) {
+					// 	cout << "case 1" << endl;
+					// 	cout << en_str << endl;
+					// }
+					strcpy(resen_str, en_str);
+					resen_str_len = en_str_len;
+					fshift = shift;
+					fmismatchno = mismatchno;
+				}
+			}
+		}
+		// case 2:
+		{
+			// case shift < 0
+			//    AATTGCATGC parent
+			//  GCAATTGCATG
+			int en_str_len = 0;
+			int eq_char_num = 0;
+			int mismatchno = 0;
+			int i, j;
+			if (pl > cl - shift) {
+				for (j = 0; j < shift; ++j) {
+					en_str[en_str_len++] = child[j];
+				}
+				for (i = 0, j = shift; i < pl && j < cl; ++i, ++j) {
+					if (parent[i] != child[j]) {
+						++ mismatchno;
+
+						sprintf(int_str, "%d", eq_char_num);
+						for (char *tk = int_str; *tk != '\0'; ++tk) {
+							en_str[en_str_len++] = *tk;
+						}
+						eq_char_num = 0;
+						en_str[en_str_len++] = child[j]; 
+					} else ++ eq_char_num;	
+				}
+				en_str[en_str_len] = '\0';
+				// if (debug) cout << "en_str_len: " << en_str_len << endl;
+				if (en_str_len < max_dif_thr && en_str_len < resen_str_len) {
+					// if (debug) {
+					// 	cout << "case 2" << endl;
+					// 	cout << en_str << endl;
+					// }
+					strcpy(resen_str, en_str);
+					resen_str_len = en_str_len;
+					fshift = 0 - shift;
+					fmismatchno = mismatchno;
+				}
+			}
+	 	}
+	 	// 
+	 	shift = _shift >= 0?_shift:(0 - _shift);
+	 	shift = pl > (cl - shift)? pl - (cl - shift): (cl - shift) - pl;
+	 	// if (debug) cout << "shift: " << shift << endl;
+	 	if (shift != 0) {
+	 	// case 3:
+		{	
+			// case shift >= 0
+			//    AATTGCATGC parent
+			//      TTGCATGCGAA
+			int en_str_len = 0;
+			int eq_char_num = 0;
+			int mismatchno = 0;
+			int taillen = cl - (pl - shift);
+			if (taillen > 0) {
+				for (int i = taillen; i >= 1; --i) {
+					en_str[en_str_len++] = child[cl - i];
+				}
+				int i, j;
+				for (i = shift, j = 0; i < pl && j < cl; ++i, ++j) {
+					if (parent[i] != child[j]) {
+						++ mismatchno;
+
+						sprintf(int_str, "%d", eq_char_num);
+						for (char *tk = int_str; *tk != '\0'; ++tk) {
+							en_str[en_str_len++] = *tk;
+						}
+						eq_char_num = 0;
+						en_str[en_str_len++] = child[j]; 
+					} else ++ eq_char_num;
+				}
+				en_str[en_str_len] = '\0';
+
+				if (en_str_len < max_dif_thr && en_str_len < resen_str_len) {
+					// if (debug) {
+					// 	cout << "case 3" << endl;
+					// 	cout << en_str << endl;
+					// 	cout << "shift in case 3: " << shift << endl;
+					// }
+					strcpy(resen_str, en_str);
+					resen_str_len = en_str_len;
+					fshift = shift;
+					fmismatchno = mismatchno;
+				}
+			}
+		}
+		// case 4:
+		{
+			int en_str_len = 0;
+			int eq_char_num = 0;
+			int mismatchno = 0;
+			int i, j;
+			if (pl > cl - shift) {
+				for (j = 0; j < shift; ++j) {
+					en_str[en_str_len++] = child[j];
+				}
+				for (i = 0, j = shift; i < pl && j < cl; ++i, ++j) {
+					if (parent[i] != child[j]) {
+						++ mismatchno;
+
+						sprintf(int_str, "%d", eq_char_num);
+						for (char *tk = int_str; *tk != '\0'; ++tk) {
+							en_str[en_str_len++] = *tk;
+						}
+						eq_char_num = 0;
+						en_str[en_str_len++] = child[j]; 
+					} else ++ eq_char_num;	
+				}
+				en_str[en_str_len] = '\0';
+				if (en_str_len < max_dif_thr && en_str_len < resen_str_len) {
+					// if (debug) {
+					// 	cout << en_str << endl;
+					// 	cout << "case 4" << endl;
+					// }
+					strcpy(resen_str, en_str);
+					resen_str_len = en_str_len;
+					fshift = 0 - shift;
+					fmismatchno = mismatchno;
+				}
+			}
+	 	}
+	 	}
+	 	// 
+	 	shift = _shift >= 0?_shift:(0 - _shift);
+	 	shift = cl > (pl - shift)? cl - (pl - shift): (pl - shift) - cl;
+	 	// if (debug) cout << "shift: " << shift << endl;
+	 	if (shift != 0) {
+	 	// case 5:
+		{
+			int en_str_len = 0;
+			int eq_char_num = 0;	
+			int mismatchno = 0;
+			int taillen = cl - (pl - shift);
+			if (taillen > 0) {
+				for (int i = taillen; i >= 1; --i) {
+					en_str[en_str_len++] = child[cl - i];
+				}
+				int i, j;
+				for (i = shift, j = 0; i < pl && j < cl; ++i, ++j) {
+					if (parent[i] != child[j]) {
+						++ mismatchno;
+
+						sprintf(int_str, "%d", eq_char_num);
+						for (char *tk = int_str; *tk != '\0'; ++tk) {
+							en_str[en_str_len++] = *tk;
+						}
+						eq_char_num = 0;
+						en_str[en_str_len++] = child[j]; 
+					} else ++ eq_char_num;
+				}
+				en_str[en_str_len] = '\0';
+
+				if (en_str_len < max_dif_thr && en_str_len < resen_str_len) {
+					// if (debug) {
+					// 	cout << "case 5" << endl;
+					// 	cout << en_str << endl;
+					// }
+					strcpy(resen_str, en_str);
+					resen_str_len = en_str_len;
+					fshift = shift;
+					fmismatchno = mismatchno;
+				}
+			}
+		}
+		// case 6:
+		{
+			int en_str_len = 0;
+			int eq_char_num = 0;
+			int mismatchno = 0;
+			int i, j;
+			if (pl > cl - shift) {
+				for (j = 0; j < shift; ++j) {
+					en_str[en_str_len++] = child[j];
+				}
+				for (i = 0, j = shift; i < pl && j < cl; ++i, ++j) {
+					if (parent[i] != child[j]) {
+						++ mismatchno;
+
+						sprintf(int_str, "%d", eq_char_num);
+						for (char *tk = int_str; *tk != '\0'; ++tk) {
+							en_str[en_str_len++] = *tk;
+						}
+						eq_char_num = 0;
+						en_str[en_str_len++] = child[j]; 
+					} else ++ eq_char_num;	
+				}
+				en_str[en_str_len] = '\0';
+				if (en_str_len < max_dif_thr && en_str_len < resen_str_len) {
+					// if (debug) {
+					// 	cout << "case 6" << endl;
+					// 	cout << en_str << endl;
+					// }
+					strcpy(resen_str, en_str);
+					resen_str_len = en_str_len;
+					fshift = 0 - shift;
+					fmismatchno = mismatchno;
+				}
+			}
+	 	}
+	 	}
+ 	}
+
+ 	_shift = fshift;
+ 	// if (debug) {
+ 	// 	cout << "fshift: " << fshift << endl;
+ 	// 	// exit(0);
+ 	// }
+
+ 	return fmismatchno;
+}
+
+// FILE *fffp;
+
+int encodeL1L2_v3(uint32_t rid, char *en_str) {
+	if (reads[rid].prid == rid) return L;
+	// cout << "222" << endl;
+	uint32_t enclen = 0;
+	int mismatchno, rL = (rid < (max_rid>>1))?L1: L2;
+	int prL = (reads[rid].prid < (max_rid>>1))?L1: L2;
+
+	// if (rid == 0) {
+	// 	cout << "prid: " << reads[rid].prid << endl;
+	// 	// cout << "parent: " << seq[reads[rid].prid].seq << endl;
+	// 	// cout << "child: " << seq[rid].seq << endl;
+	// 	// exit(0);
+	// }
+	if (reads[rid].isrc) {
+		char *rcstr = (char*)alloca((rL + 3) * sizeof(char));
+		strncpy(rcstr, seq[rid].seq, rL);
+		rcstr[rL] = '\0';
+		reverseComplement(rcstr, rL);
+		// if (rid == 0) {
+		// 	cout << "prL: " << prL << endl;
+		// 	cout << "rL: " << rL << endl;
+		// 	cout << "isrc" << endl;
+		// 	cout << "parent: " << seq[reads[rid].prid].seq << endl;
+		// 	cout << "child: " << rcstr << endl;
+		// }
+		if (prL == rL) {
+			mismatchno = encode_v3(seq[reads[rid].prid].seq, prL, rcstr, rL, reads[rid].shift, en_str);
+		} else {
+			mismatchno = encode_v3L1L2(seq[reads[rid].prid].seq, prL, rcstr, rL, reads[rid].shift, en_str);
+		}
+		// if (rid == 0) {
+		// 	cout << "reads[rid].shift: " << reads[rid].shift << endl;
+		// }
+	} else {
+		// if (rid == 0) {
+		// 	cout << "prL: " << prL << endl;
+		// 	cout << "rL: " << rL << endl;
+		// 	cout << "isrc" << endl;
+		// 	cout << "parent: " << seq[reads[rid].prid].seq << endl;
+		// 	cout << "child: " << seq[rid].seq << endl;
+		// }
+		if (prL == rL) {
+			mismatchno = encode_v3(seq[reads[rid].prid].seq, prL, seq[rid].seq, rL, reads[rid].shift, en_str);
+		} else {
+			mismatchno = encode_v3L1L2(seq[reads[rid].prid].seq, prL, seq[rid].seq, rL, reads[rid].shift, en_str);
+		}
+		// if (rid == 0) {
+		// 	cout << "reads[rid].shift: " << reads[rid].shift << endl;
+		// }
+	}
+	// if (rid == 0) {
+	// 	cout << en_str << endl;
+	// 	// exit(0);
+	// }
+	// if (strcmp(en_str, "2G10C6A16C1G2T10C1G12G3G3A0C1G0A3A1G1A7A0C") == 0) {
+	// 	cout << "rid: " << rid << endl;
+	// }
+	// cout << "555" << endl;
+	return mismatchno;
+}
+
+// mstcom e -i test_1.fastq -f test_2.fastq -o test.mstcom
+void encodeReadsFunL1L2() {
+	char *encstr = (char*)alloca((max(L1, L2) + 5) * sizeof(char));
+	uint32_t noderid;
+
+	while (1) {
+		uint32_t rid = __sync_fetch_and_add(&rid_pthread, 1);
+		if (rid >= max_rid) break;
+
+		// if (reads[rid].prid == rid) {
+		if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) {
+			// cout << "111" << endl;
+			uint32_v v;
+			kv_init(v);
+			kv_push(uint32_t, v, rid);
+			uint32_t i = 0;
+			while (i < v.n) {
+				noderid = v.a[i];
+				for (uint32_t j = 0; j < reads[noderid].crid.n; ++j) {
+					kv_push(uint32_t, v, reads[noderid].crid.a[j]);
+				}
+				++ i;
+			}
+			for (i = v.n - 1; i >= 0; --i) {
+				noderid = v.a[i];
+				// cout << "8888" << endl;
+				int encstrlen =	encodeL1L2_v3(noderid, encstr);
+				// cout << "8888000000" << endl;
+				if (encstrlen < min(L1, L2)) {
+					free(seq[noderid].seq);
+					// recmtx.lock();
+					// fprintf(fffp, "%s\n", encstr);
+					// recmtx.unlock();
+					seq[noderid].seq = strdup(encstr);
+				}
+				// cout << "9999" << endl;
+				if (isorder)
+				// for duplicate reads
+				for (uint32_t w = 1; w < reads[noderid].dn + 1; ++w) {
+					uint32_t trid = reads[noderid].dup[w].id;
+					reads[trid].prid = noderid;		
+					reads[trid].isrc = reads[noderid].dup[w].isrc;
+					seq[trid].seq[0] = '\0'; 
+				}
+
+				if (i == 0) break;
+			}
+			kv_destroy(v);
+			// cout << "666" << endl;
+		}
+	}
+}
+
 void encodeReads() {
 	cout << "begin encodeReads()" << endl;
 	rid_pthread = 0;
+	// fffp = fopen("encstr.txt", "w");
+	// nthreads = 1;
+	// uint32_t rid = 500002;
+	// while (true) {
+	// 	cout << reads[rid].prid << endl;
+	// 	rid = reads[rid].prid;
+	// 	if (reads[rid].prid == rid) exit(0);
+	// }
+
 	std::vector<thread> threadVec;
-	for (int i = 0; i < nthreads; ++i) {
-		threadVec.push_back(std::thread(encodeReadsFun));
+	if (L1 == L2) {
+		for (int i = 0; i < nthreads; ++i) {
+			threadVec.push_back(std::thread(encodeReadsFun));
+		}
+	} else {
+		for (int i = 0; i < nthreads; ++i) {
+			threadVec.push_back(std::thread(encodeReadsFunL1L2));
+		}
 	}
 	std::for_each(threadVec.begin(), threadVec.end(), [](std::thread & thr) {
 		thr.join();
 	});
 	threadVec.clear();
 	cout << "after encodeReads()" << endl;
+	
+	// fclose(fffp);
+
 }
 
 void encodeReads_() {
@@ -975,8 +1701,6 @@ int compress_main(int argc, char *argv[]) {
 
 	L = getReadsLength(infile.c_str());
 
-	if (max_dif_thr == 0) 
-		max_dif_thr = L - 10;
 	// cout << "max_dif_thr: " << max_dif_thr << endl;
 	cout << "reads length: " << L << endl;
 
@@ -984,11 +1708,20 @@ int compress_main(int argc, char *argv[]) {
 
 	fprintf(stderr, "ispe: %d\nisorder: %d\n", ispe, isorder);
 
+	L1 = L2 = L;
 	if (ispe) {
+		L2 = getReadsLength(infile1.c_str());
 		// cout << "max_rid: " << max_rid << endl;
-		getRightReads(infile1.c_str());
+		if (L1 == L2)
+			getRightReads(infile1.c_str());
+		else 
+			getRightReads(infile1.c_str(), L2);
 	}
 
+	if (max_dif_thr == 0) 
+		max_dif_thr = min(L1, L2) - 10;
+
+	cout << "L1: " << L1 << "; L2: " << L2 << endl;
 	// RN 
 	if (RN > ((1UL << 32)-20)) {
 		cout << "Large number of reads; the program cannot compression them.\n" <<endl;
@@ -1004,6 +1737,9 @@ int compress_main(int argc, char *argv[]) {
 	// fprintf(fp, "%d\n", isorder);
 	if (isorder || ispe) {
 		fprintf(fppar, "%lu\n", max_rid);
+	}
+	if (ispe) {
+		fprintf(fppar, "%d %d\n", L1, L2);
 	}
 	fclose(fppar);
 
@@ -1025,7 +1761,9 @@ int compress_main(int argc, char *argv[]) {
 
 	int maxkmer = 29;
 	kmervecsize = 20;
-	// kmervecsize = 15;
+
+	// maxkmer = 13;
+	// kmervecsize = 1; // for test
 
 	// int maxkmer = 49;
 	// kmervecsize = 40;
@@ -1077,7 +1815,6 @@ int compress_main(int argc, char *argv[]) {
 	removeDuplicate(); // kmer = 31
 
 	cout << "isnextrnd: " << coutIsNext() << endl;
-
 	edgesConstruction();
 
 	cout << "after edgesConstruction()..." << endl;
@@ -1088,8 +1825,12 @@ int compress_main(int argc, char *argv[]) {
 	delete[] snum; snum = NULL;
 	delete[] isnextrnd; isnextrnd = NULL;
 
-	mstConstruction();
-
+	// if (L1 == L2)
+		mstConstruction();
+	// else	
+		// mstConstructionL1L2();
+	// cout << "nthreads: " << nthreads << endl;
+	// exit(0);
 	// labelRoot();
 
 	// countTree();
@@ -1147,14 +1888,15 @@ int compress_main(int argc, char *argv[]) {
 	// if (isorder) {
 	// 	encodeNode();
 	// } else 
-
+	// exit(0);
 	if (ispe) {
 		// outputPE();
 		if (isorder) {
 			outputPEOrder();
-		} else
+		} else {
 			outputPEX();
-	} else {
+		}
+	} else { // single
 		if (isorder) {
 			outputSingleOrder();
 		} else
@@ -1245,6 +1987,7 @@ int coutMismatch(char *parent, char *child, int8_t shift) {
 	return weight;
 }
 
+#ifdef false
 int courMismatch(uint32_t rid) {
 	char *str = (char*)alloca((L + 3) * sizeof(char));
 	strcpy(str, seq[rid].seq);
@@ -1309,7 +2052,7 @@ void loadTrees(string fn) {
 	fclose(fp);
 	cout << "loadTrees() over" << endl;
 
-#ifdef false
+
 	FILE *fpout = fopen("a.txt", "w");
 	for (uint32_t rid = 0; rid < max_rid; ++rid) {
 		// if (reads[rid].prid == rid && (reads[rid].crid.n > 0 || reads[rid].dn > 0)) { //is the root node && not a leaf node == not a singleton reads	
@@ -1350,6 +2093,6 @@ void loadTrees(string fn) {
 		}
 	}
 	fclose(fpout);
-#endif
 }
+#endif
 
